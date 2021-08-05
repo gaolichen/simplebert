@@ -142,7 +142,7 @@ class PositionEmbedding(keras.layers.Layer):
         #position_ids = tf.math.multiply(tf.cumsum(has_id, axis = 1), has_id) + self.pad_id
         position_ids = tf.expand_dims(tf.range(start = 0, limit = input_ids.shape[-1]), axis = 0)
         output = tf.gather(self.embeddings, indices = position_ids)
-        return tf.tile(input = output, multiples = (input_ids.shape[0], 1, 1)) 
+        return tf.tile(input = output, multiples = tf.constant([input_ids.shape[0], 1, 1]))
 
 class TransformerEmbedding(keras.layers.Layer):
     def __init__(self, vocab_size, dim, max_position_embeddings, name = None):
@@ -371,7 +371,7 @@ class TransformerPooler(keras.layers.Layer):
                                         activation = 'tanh', name = 'dense')
 
     def call(self, hidden_states):
-        return self.dense(hidden_states[:,0])
+        return self.dense(hidden_states)
 
 class LanguageModelHead(keras.layers.Layer):
     def __init__(self, config, word_embedding, name = None):
@@ -410,6 +410,17 @@ class LanguageModelHead(keras.layers.Layer):
 
         return hidden_states
 
+
+class BertOutput(object):
+    def __init__(self,
+                 sequence_output = None,
+                 pooler_output = None,
+                 logits = None,
+                 hidden_states = None):
+        self.sequence_output = sequence_output
+        self.pooler_output = pooler_output
+        self.logits = logits
+        self.hidden_states = hidden_states
 
 class Transformer(keras.models.Model):
     """
@@ -469,12 +480,10 @@ class Transformer(keras.models.Model):
         pooler_output = self.pooler(last_hidden_state[:,0]) if self.pooler else None
         logits = self.lml(last_hidden_state) if self.lml else None
 
-        if pooler_output is not None:
-            return (last_hidden_state, pooler_output, hidden_states)
-        elif logits is not None:
-            return (last_hidden_state, logits, hidden_states)
-        else:
-            return (last_hidden_state, None, hidden_states)
+        return BertOutput(sequence_output = last_hidden_state,
+                          pooler_output = pooler_output,
+                          logits = logits,
+                          hidden_states = hidden_states)
 
     def _clean_weight_name(self, weight_name):
         if not weight_name.startswith(self.name + '/'):

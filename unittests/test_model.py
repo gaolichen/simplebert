@@ -84,7 +84,7 @@ class TransformerTestCase(unittest.TestCase):
 
         print(inputs['input_ids'].shape)
         output = bert(inputs, output_hidden_states = True)
-        print(output[0].shape, output[2][0])
+        print(output.sequence_output.shape, output.hidden_states[0])
 
 
     def test_call_lml(self):
@@ -100,7 +100,7 @@ class TransformerTestCase(unittest.TestCase):
 
         print(inputs['input_ids'].shape)
         output = bert(inputs, output_hidden_states = True)
-        print(output[0].shape, output[2][0])
+        print(output.sequence_output.shape, output.hidden_states[0])
 
 
     def test_call_HuggingFace(self):
@@ -112,20 +112,20 @@ class TransformerTestCase(unittest.TestCase):
         tokenizer = Tokenizer(cn_vocab_path)
 
         inputs = tokenizer([text], return_np = True, return_dict = True)
-        sequence_output, pooler_output, hidden_states = bert(inputs, output_hidden_states = True)
+        output = bert(inputs, output_hidden_states = True)
 
         hf_hidden_states = huggingface_model_output(text)
 
-        save_output(hidden_states, num_layers = 2, file_name = './my_bert')
+        save_output(output.hidden_states, num_layers = 2, file_name = './my_bert')
         save_output(hf_hidden_states, num_layers = 2, file_name = './hf_bert')
 
-        diff0 = hidden_states[0] - hf_hidden_states[0]
-        diff1 = hidden_states[1] - hf_hidden_states[1]
-        diff2 = hidden_states[-1] - hf_hidden_states[-1]
+        diff0 = output.hidden_states[0] - hf_hidden_states[0]
+        diff1 = output.hidden_states[1] - hf_hidden_states[1]
+        diff2 = output.hidden_states[-1] - hf_hidden_states[-1]
         print(tf.norm(diff0, axis = -1))
         print(tf.norm(diff1, axis = -1))
         print(tf.norm(diff2, axis = -1))
-        print(tf.norm(hidden_states[1], axis = -1) / tf.sqrt(float(hidden_states[1].shape[-1])))
+        print(tf.norm(output.hidden_states[1], axis = -1) / tf.sqrt(float(output.hidden_states[1].shape[-1])))
 
     def test_call_HuggingFace_textpair(self):
         text1 = u'磁铁会吸引某些金属，但也会排斥其他磁铁，那么为什么人们只能感觉到地心引力呢？'
@@ -138,17 +138,17 @@ class TransformerTestCase(unittest.TestCase):
 
         inputs = tokenizer([text1], second_text = [text2], return_np = True, return_dict = True, maxlen = 80)
         #print('my_model inputs:', inputs)
-        sequence_output, pooler_output, hidden_states = bert(inputs, output_hidden_states = True)
+        output = bert(inputs, output_hidden_states = True)
 
         hf_hidden_states = huggingface_model_output(text1, text2, maxlen = 80)
 
-        diff0 = hidden_states[0] - hf_hidden_states[0]
-        diff1 = hidden_states[1] - hf_hidden_states[1]
-        diff2 = hidden_states[-1] - hf_hidden_states[-1]
+        diff0 = output.hidden_states[0] - hf_hidden_states[0]
+        diff1 = output.hidden_states[1] - hf_hidden_states[1]
+        diff2 = output.hidden_states[-1] - hf_hidden_states[-1]
         print(tf.norm(diff0, axis = -1))
         print(tf.norm(diff1, axis = -1))
         print(tf.norm(diff2, axis = -1))
-        print(tf.norm(hidden_states[1], axis = -1) / tf.sqrt(float(hidden_states[1].shape[-1])))
+        print(tf.norm(output.hidden_states[1], axis = -1) / tf.sqrt(float(output.hidden_states[1].shape[-1])))
 
     def test_LMHead(self):
         config = BertConfig(path = hf_config_path)
@@ -160,9 +160,9 @@ class TransformerTestCase(unittest.TestCase):
         print(tokenizer.tokenize(text))
 
         inputs = tokenizer([text], return_np = True, return_dict = True)
-        sequence_output, logits, hidden_states = bert(inputs, output_hidden_states = False)
+        output = bert(inputs, output_hidden_states = False)
 
-        tokens = logits_to_tokens(logits, tokenizer, topk = 5)
+        tokens = logits_to_tokens(output.logits, tokenizer, topk = 5)
         print(tokens)
 
         hf_logits = higgingface_lmlmodel_output(text)
@@ -179,10 +179,27 @@ class TransformerTestCase(unittest.TestCase):
         print(tokenizer.tokenize(text))
 
         inputs = tokenizer([text], return_np = True, return_dict = True)
-        sequence_output, logits, hidden_states = bert(inputs, output_hidden_states = False)
+        output = bert(inputs, output_hidden_states = False)
 
-        tokens = logits_to_tokens(logits, tokenizer, topk = 5)
+        tokens = logits_to_tokens(output.logits, tokenizer, topk = 5)
         print(tokens)
+
+    def test_call_batch(self):
+        config = BertConfig(path = hf_config_path)
+        bert = HuggingFaceBertModel(config = config, head_type = 'pooler', name = 'bert')
+        bert.from_checkpoint(self.h5file_path)
+
+        text1 = u'磁铁会吸引某些金属，但也会排斥其他磁铁，那么为什么人们只能感觉到地心引力呢？'
+        text2 = u'1915年，阿尔伯特·爱因斯坦发表了著名的广义相对论，找到了其中的答案。'
+        tokenizer = Tokenizer(cn_vocab_path)
+        inputs = tokenizer([text1, text2], return_np = True, return_dict = True, maxlen = 64)
+        output = bert(inputs, output_hidden_states = False)
+
+        hf_pooler_output = higgingface_pooler_output([text1, text2])
+        
+        diff = output.pooler_output - hf_pooler_output
+        print(tf.norm(diff, axis = -1) / tf.sqrt(float(diff.shape[-1])))
+        print(tf.norm(output.pooler_output, axis = -1) / tf.sqrt(float(diff.shape[-1])))
 
 def logits_to_tokens(logits, tokenizer, topk):
     prob = tf.nn.softmax(logits, axis = -1)
@@ -216,6 +233,13 @@ def higgingface_lmlmodel_output(text):
     output = model(inputs, output_hidden_states = False)
     return output.logits
 
+def higgingface_pooler_output(texts):
+    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    model = TFBertModel.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    inputs = tokenizer(texts, return_tensors = 'tf', max_length = 64, padding = 'max_length')
+    output = model(inputs, output_hidden_states = False)
+    return output.pooler_output
+
 def save_output(hidden_states, num_layers, file_name):
     for k in range(num_layers):
         with open(file_name + f'_layer_{k}.txt', 'w') as f:
@@ -227,13 +251,15 @@ def suite():
     suite.addTest(BertConfigTestCase('test_constructor'))
     suite.addTest(BertConfigTestCase('test_constructor_with_extra_args'))
     
-#    suite.addTest(TransformerTestCase('test_constructor'))
+    suite.addTest(TransformerTestCase('test_constructor'))
     suite.addTest(TransformerTestCase('test_call'))
     suite.addTest(TransformerTestCase('test_call_lml'))
-#    suite.addTest(TransformerTestCase('test_call_HuggingFace'))
-#    suite.addTest(TransformerTestCase('test_call_HuggingFace_textpair'))
-#    suite.addTest(TransformerTestCase('test_LMHead'))
-#    suite.addTest(TransformerTestCase('test_causal_lml'))
+    suite.addTest(TransformerTestCase('test_call_HuggingFace'))
+    suite.addTest(TransformerTestCase('test_call_HuggingFace_textpair'))
+    suite.addTest(TransformerTestCase('test_LMHead'))
+    suite.addTest(TransformerTestCase('test_causal_lml'))
+    suite.addTest(TransformerTestCase('test_call_batch'))
+    
     return suite
 
 if __name__ == '__main__':
