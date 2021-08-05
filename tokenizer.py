@@ -38,26 +38,33 @@ class Tokenizer(object):
 
         if not self.cased:
             text = text.lower()
+
+        def add_word():
+            nonlocal word
+            if len(word) > 0:
+                words.append(word)
+                word = ''
         
         for i, ch in enumerate(text):
             if utils.is_whitespace(ch):
-                if len(word) > 0:
-                    words.append(word)
-                    word = ''
+                add_word()
             elif utils.is_cjk_character(ch):
-                if len(word) > 0:
-                    words.append(word)
-                    word = ''
-                    
+                add_word()
                 words.append(ch)
+            elif ch == ']':
+                if len(words) >= 1 and words[-1] == '[' and word == 'MASK':
+                    # this is a [MASK] token
+                    words[-1] = self.mask_token
+                    word = ''
+                else:
+                    add_word()
+                    words.append(ch)
                 
 #            elif utils.is_punctuation(ch) and (utils.is_whitespace(text[i+1]) or \
 #                                               ch in utils.cjk_punctuation()):
             elif utils.is_punctuation(ch):
                 # true punctuation
-                if len(word) > 0:
-                    words.append(word)
-                    word = ''
+                add_word()
                 words.append(ch)
             else:
                 word += ch

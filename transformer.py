@@ -12,6 +12,13 @@ from tensorflow.python.keras.saving import hdf5_format
 def get_initializer(init_range):
     return keras.initializers.RandomNormal(mean = 0.0, stddev = init_range)
 
+
+def gelu(features, name = None):
+    return tf.nn.gelu(features, approximate = False, name = name)
+
+def lower_triangle_matrix(n):
+    return np.tril([1] * n, k = 0)
+
 class CheckpointCache(object):
     def __init__(self, ckp_or_h5_path):
         super(CheckpointCache, self).__init__()
@@ -89,11 +96,17 @@ class SequenceEmbedding(keras.layers.Layer):
         super(SequenceEmbedding, self).__init__(name = name)
 
         self.dim = dim
-        self.embedding = keras.layers.Embedding(input_dim = vocab_size, output_dim = dim, name = 'embedding')
+        self.vocab_size = vocab_size
 
 
+    def build(self, input_shape):
+        self.weight = self.add_weight(shape = (self.vocab_size, self.dim), trainable = True,
+                                          initializer = get_initializer(0.02), name = 'weight')
+    
+        
     def call(self, x):
-        return self.embedding(x) #* tf.math.sqrt(tf.cast(self.dim, dtype='float32'))
+        return tf.gather(self.weight, indices = x)
+    
 
 class PositionEmbedding(keras.layers.Layer):
     """Encode position information of input.
@@ -292,11 +305,13 @@ class PositionwiseFeedForward(keras.layers.Layer):
                                         activation = config.hidden_act,
                                         kernel_initializer = get_initializer(config.initializer_range),
                                         name = 'dense')
+        #self.activation = config.hidden_act
         
         self.dropout = keras.layers.Dropout(config.hidden_dropout_prob)
 
     def call(self, x, training = False):
         output = self.dense(x)
+        #output = gelu(output, name = 'gelu')
         return self.dropout(output, training = training)
 
 class FeedForwardLayer(keras.layers.Layer):
@@ -356,16 +371,55 @@ class TransformerPooler(keras.layers.Layer):
                                         activation = 'tanh', name = 'dense')
 
     def call(self, hidden_states):
-        return self.dense(hidden_states[:,0])    
+        return self.dense(hidden_states[:,0])
+
+class LanguageModelHead(keras.layers.Layer):
+    def __init__(self, config, word_embedding, name = None):
+        super(LanguageModelHead, self).__init__(name = name)
+
+        self.word_embedding = word_embedding
+        self.vocab_size = config.vocab_size
+        self.hidden_size = config.hidden_size
+        self.hidden_act = config.hidden_act
+        self.initializer_range = config.initializer_range
+
+    def build(self, input_shape):
+        with tf.name_scope('transform'):
+            self.dense = keras.layers.Dense(
+                units=self.hidden_size,
+                input_shape = (self.hidden_size,),
+                kernel_initializer=get_initializer(self.initializer_range),
+                activation = self.hidden_act,
+                name="transform/dense",
+            )
+            
+            self.norm = keras.layers.LayerNormalization(epsilon = 1e-12, name="transform/LayerNorm")
+            
+        self.bias = self.add_weight(shape=(self.vocab_size,), initializer="zeros", trainable=True, name="bias")
+        
+        super().build(input_shape)
+        
+    def call(self, x, training = False):
+        hidden_states = self.dense(x)
+        hidden_states = self.norm(hidden_states)
+        seq_length = hidden_states.shape[1]
+        hidden_states = tf.reshape(hidden_states, shape = (-1, self.hidden_size))
+        hidden_states = tf.matmul(a = hidden_states, b = self.word_embedding.weight, transpose_b = True)
+        hidden_states = tf.reshape(hidden_states, shape=(-1, seq_length, self.vocab_size))
+        hidden_states = tf.nn.bias_add(value = hidden_states, bias = self.bias)
+
+        return hidden_states
+
 
 class Transformer(keras.models.Model):
     """
     base class of transformers
     """
-    def __init__(self, config, add_pooler = False, **kwargs):
+    def __init__(self, config, causal_attention_mask = False, head_type = None, **kwargs):
         super(Transformer, self).__init__(**kwargs)
 
         self.config = config
+        self.causal_attention_mask = causal_attention_mask
         self.embeddings = TransformerEmbedding(vocab_size = config.vocab_size,
                                                dim = config.hidden_size,
                                                max_position_embeddings = config.max_position_embeddings,
@@ -373,7 +427,8 @@ class Transformer(keras.models.Model):
 
         self.encoder = Encoder(config, name = 'encoder')
         
-        self.pooler = TransformerPooler(config, name = 'pooler') if add_pooler else None        
+        self.pooler = TransformerPooler(config, name = 'pooler') if head_type == 'pooler' else None
+        self.lml = LanguageModelHead(config, word_embedding = self.embeddings.word_embeddings, name = 'predictions') if head_type == 'lml' else None
     
     def call(self, inputs, output_hidden_states = False, training = False):
         if isinstance(inputs, (list, tuple)):
@@ -390,25 +445,36 @@ class Transformer(keras.models.Model):
         
         hidden_states = []
         output = self.embeddings(input_ids, token_type_ids, training = training)
+        
         if output_hidden_states:
             hidden_states.append(output)
 
-        if attention_mask is None:
-            attention_mask = tf.constant(1.0, shape = input_ids.shape, dtype = 'float32')
-
-        # attention_mask now has shape (batches, sequence_len),
-        # we need to covert it to (batches, 1, 1, sequence_len)
-        # so that later it will broadcast to (batches, num_attention_heads, sequence_len, sequence_len)
-        attention_mask = tf.reshape(attention_mask, shape = (input_ids.shape[0], 1, 1, input_ids.shape[-1]))
+        if self.causal_attention_mask:
+            attention_mask = tf.constant(lower_triangle_matrix(input_ids.shape[-1]))
+            attention_mask = tf.reshape(attention_mask, shape = (1, 1, input_ids.shape[-1], input_ids.shape[-1]))
+            
+        else:
+            if attention_mask is None:
+                attention_mask = tf.constant(1.0, shape = input_ids.shape, dtype = 'float32')
+            # attention_mask now has shape (batches, sequence_len),
+            # we need to covert it to (batches, 1, 1, sequence_len)
+            # so that later it will broadcast to (batches, num_attention_heads, sequence_len, sequence_len)
+            attention_mask = tf.reshape(attention_mask, shape = (input_ids.shape[0], 1, 1, input_ids.shape[-1]))
 
             
         last_hidden_state, layer_outputs = self.encoder(output, attention_mask, output_hidden_states = output_hidden_states, training = training)
         if output_hidden_states:
             hidden_states.extend(layer_outputs)
             
-        pooler_output = self.pooler(output) if self.pooler else None
+        pooler_output = self.pooler(last_hidden_state[:,0]) if self.pooler else None
+        logits = self.lml(last_hidden_state) if self.lml else None
 
-        return (last_hidden_state, pooler_output, hidden_states)
+        if pooler_output is not None:
+            return (last_hidden_state, pooler_output, hidden_states)
+        elif logits is not None:
+            return (last_hidden_state, logits, hidden_states)
+        else:
+            return (last_hidden_state, None, hidden_states)
 
     def _clean_weight_name(self, weight_name):
         if not weight_name.startswith(self.name + '/'):
@@ -429,10 +495,12 @@ class Transformer(keras.models.Model):
         symbolic_weights = self.trainable_weights + self.non_trainable_weights
         
         variable_keys = [self._clean_weight_name(symbolic_weight.name) for symbolic_weight in symbolic_weights]
+        #for key in variable_keys:
+        #    print(key)
         variable_keys = [self._convert_variable_name(key) for key in variable_keys]
 
         unloaded_keys = set(ckc.keys()) - set(variable_keys)
-        print('unloaded keys:', unloaded_keys)
+        print('unused keys:', unloaded_keys)
         
         values = [ckc.get_values(key) for key in variable_keys]
         
@@ -445,7 +513,7 @@ class Transformer(keras.models.Model):
             name_value_pair.append((weight, value))
         
         K.batch_set_value(name_value_pair)
-
+        
 
     def _convert_variable_name(self, key):
         raise NotImplementedError
@@ -456,9 +524,10 @@ class BertModel(Transformer):
         super(BertModel, self).__init__(config, **kwargs)
 
         self.embedding_name_mapping = {
-            'embeddings/word_embeddings/embedding/embeddings': 'embeddings/word_embeddings',
+            'embeddings/word_embeddings/weight': 'embeddings/word_embeddings',
             'embeddings/position_embeddings/embeddings': 'embeddings/position_embeddings',
-            'embeddings/token_type_embeddings/embeddings': 'embeddings/token_type_embeddings'}
+            'embeddings/token_type_embeddings/embeddings': 'embeddings/token_type_embeddings',
+            'predictions/bias': 'predictions/output_bias'}
 
     def _convert_variable_name(self, key):
         # remove last ':0'
@@ -473,6 +542,8 @@ class BertModel(Transformer):
             return prefix + self.embedding_name_mapping.get(key, key)
         elif key.startswith('pooler/'):
             return prefix + key
+        elif key.startswith('predictions/'):
+            return 'cls/' + self.embedding_name_mapping.get(key, key)
         else:
             raise ValueError(f'Invalid variable name {key}')
 
@@ -496,6 +567,8 @@ class HuggingFaceBertModel(Transformer):
             return prefix + self.embedding_name_mapping.get(key, key)
         elif key.startswith('pooler/'):
             return prefix + key
+        elif key.startswith('predictions/'):
+            return 'mlm___cls/' + key
         else:
             raise ValueError(f'Invalid variable name {key}')
 

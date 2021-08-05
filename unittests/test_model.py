@@ -7,7 +7,7 @@ import tensorflow as tf
 
 import sys
 import os
-from transformers import TFBertModel, BertTokenizer
+from transformers import TFBertModel, BertTokenizer, TFBertForMaskedLM
   
 # getting the name of the directory
 # where the this file is present.
@@ -73,7 +73,23 @@ class TransformerTestCase(unittest.TestCase):
 
     def test_call(self):
         config = BertConfig(path = self.config_path)
-        bert = BertModel(config = config, add_pooler = False, name = 'bert')
+        bert = BertModel(config = config, name = 'bert')
+        bert.from_checkpoint(self.checkpoint_path)
+
+        tokenizer = Tokenizer(en_cased_vocab_path)
+        maxlen = 20
+        text = "Train the model for three epochs."
+        print(tokenizer.tokenize(text))
+        inputs = tokenizer([text], return_np = True, return_dict = True)
+
+        print(inputs['input_ids'].shape)
+        output = bert(inputs, output_hidden_states = True)
+        print(output[0].shape, output[2][0])
+
+
+    def test_call_lml(self):
+        config = BertConfig(path = self.config_path)
+        bert = BertModel(config = config, head_type = 'lml', name = 'bert')
         bert.from_checkpoint(self.checkpoint_path)
 
         tokenizer = Tokenizer(en_cased_vocab_path)
@@ -91,7 +107,7 @@ class TransformerTestCase(unittest.TestCase):
         text = u'原标题：打哭伊藤美诚！孙颖莎一个词形容：过瘾！……'
         
         config = BertConfig(path = hf_config_path)
-        bert = HuggingFaceBertModel(config = config, add_pooler = False, name = 'bert')
+        bert = HuggingFaceBertModel(config = config, name = 'bert')
         bert.from_checkpoint(self.h5file_path)
         tokenizer = Tokenizer(cn_vocab_path)
 
@@ -116,7 +132,7 @@ class TransformerTestCase(unittest.TestCase):
         text2 = u'1915年，阿尔伯特·爱因斯坦发表了著名的广义相对论，找到了其中的答案。'
         
         config = BertConfig(path = hf_config_path)
-        bert = HuggingFaceBertModel(config = config, add_pooler = False, name = 'bert')
+        bert = HuggingFaceBertModel(config = config, name = 'bert')
         bert.from_checkpoint(self.h5file_path)
         tokenizer = Tokenizer(cn_vocab_path)
 
@@ -133,6 +149,52 @@ class TransformerTestCase(unittest.TestCase):
         print(tf.norm(diff1, axis = -1))
         print(tf.norm(diff2, axis = -1))
         print(tf.norm(hidden_states[1], axis = -1) / tf.sqrt(float(hidden_states[1].shape[-1])))
+
+    def test_LMHead(self):
+        config = BertConfig(path = hf_config_path)
+        bert = HuggingFaceBertModel(config = config, head_type = 'lml', name = 'bert')
+        bert.from_checkpoint(self.h5file_path)
+
+        text = u'我有一个[MASK]想。'
+        tokenizer = Tokenizer(cn_vocab_path)
+        print(tokenizer.tokenize(text))
+
+        inputs = tokenizer([text], return_np = True, return_dict = True)
+        sequence_output, logits, hidden_states = bert(inputs, output_hidden_states = False)
+
+        tokens = logits_to_tokens(logits, tokenizer, topk = 5)
+        print(tokens)
+
+        hf_logits = higgingface_lmlmodel_output(text)
+        hf_tokens = logits_to_tokens(hf_logits, tokenizer, topk = 5)
+        print(hf_tokens)
+
+    def test_causal_lml(self):
+        config = BertConfig(path = hf_config_path)
+        bert = HuggingFaceBertModel(config = config, head_type = 'lml', causal_attention_mask = True, name = 'bert')
+        bert.from_checkpoint(self.h5file_path)
+
+        text = u'我有一个梦想。'
+        tokenizer = Tokenizer(cn_vocab_path)
+        print(tokenizer.tokenize(text))
+
+        inputs = tokenizer([text], return_np = True, return_dict = True)
+        sequence_output, logits, hidden_states = bert(inputs, output_hidden_states = False)
+
+        tokens = logits_to_tokens(logits, tokenizer, topk = 5)
+        print(tokens)
+
+def logits_to_tokens(logits, tokenizer, topk):
+    prob = tf.nn.softmax(logits, axis = -1)
+    indices = tf.argsort(prob, axis = -1, direction = 'DESCENDING')
+    indices = indices[:, :, :topk]
+
+    flat_indices = tf.reshape(indices, [-1]).numpy()
+    tokens = tokenizer.ids_to_tokens(flat_indices)
+    tokens = np.array(tokens)
+    tokens = np.reshape(tokens, (-1, topk))
+    return tokens
+
         
 def huggingface_model_output(text1, text2 = None, maxlen = None):
     tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
@@ -142,10 +204,17 @@ def huggingface_model_output(text1, text2 = None, maxlen = None):
     else:
         inputs = tokenizer([text1], [text2], padding = 'max_length', max_length = maxlen, return_tensors = 'np')
 
-    #print('hf_model inputs:', inputs)
+    print('hf_model inputs:', inputs)
 
     output = model(inputs, output_hidden_states = True)
     return output.hidden_states
+
+def higgingface_lmlmodel_output(text):
+    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    model = TFBertForMaskedLM.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    inputs = tokenizer([text], return_tensors = 'np')
+    output = model(inputs, output_hidden_states = False)
+    return output.logits
 
 def save_output(hidden_states, num_layers, file_name):
     for k in range(num_layers):
@@ -158,10 +227,13 @@ def suite():
     suite.addTest(BertConfigTestCase('test_constructor'))
     suite.addTest(BertConfigTestCase('test_constructor_with_extra_args'))
     
-    suite.addTest(TransformerTestCase('test_constructor'))
+#    suite.addTest(TransformerTestCase('test_constructor'))
     suite.addTest(TransformerTestCase('test_call'))
-    suite.addTest(TransformerTestCase('test_call_HuggingFace'))
-    suite.addTest(TransformerTestCase('test_call_HuggingFace_textpair'))
+    suite.addTest(TransformerTestCase('test_call_lml'))
+#    suite.addTest(TransformerTestCase('test_call_HuggingFace'))
+#    suite.addTest(TransformerTestCase('test_call_HuggingFace_textpair'))
+#    suite.addTest(TransformerTestCase('test_LMHead'))
+#    suite.addTest(TransformerTestCase('test_causal_lml'))
     return suite
 
 if __name__ == '__main__':
