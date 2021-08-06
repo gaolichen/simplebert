@@ -4,6 +4,7 @@ import unittest
 import numpy as np
 import json
 import tensorflow as tf
+import tensorflow.keras as keras
 
 import sys
 import os
@@ -84,7 +85,7 @@ class TransformerTestCase(unittest.TestCase):
 
         print(inputs['input_ids'].shape)
         output = bert(inputs, output_hidden_states = True)
-        print(output.sequence_output.shape, output.hidden_states[0])
+        print(output['sequence_output'], output['hidden_states'][0])
 
 
     def test_call_lml(self):
@@ -100,7 +101,7 @@ class TransformerTestCase(unittest.TestCase):
 
         print(inputs['input_ids'].shape)
         output = bert(inputs, output_hidden_states = True)
-        print(output.sequence_output.shape, output.hidden_states[0])
+        print(output['sequence_output'], output['hidden_states'][0])
 
 
     def test_call_HuggingFace(self):
@@ -116,16 +117,16 @@ class TransformerTestCase(unittest.TestCase):
 
         hf_hidden_states = huggingface_model_output(text)
 
-        save_output(output.hidden_states, num_layers = 2, file_name = './my_bert')
+        save_output(output['hidden_states'], num_layers = 2, file_name = './my_bert')
         save_output(hf_hidden_states, num_layers = 2, file_name = './hf_bert')
 
-        diff0 = output.hidden_states[0] - hf_hidden_states[0]
-        diff1 = output.hidden_states[1] - hf_hidden_states[1]
-        diff2 = output.hidden_states[-1] - hf_hidden_states[-1]
-        print(tf.norm(diff0, axis = -1))
-        print(tf.norm(diff1, axis = -1))
-        print(tf.norm(diff2, axis = -1))
-        print(tf.norm(output.hidden_states[1], axis = -1) / tf.sqrt(float(output.hidden_states[1].shape[-1])))
+        diff0 = output['hidden_states'][0] - hf_hidden_states[0]
+        diff1 = output['hidden_states'][1] - hf_hidden_states[1]
+        diff2 = output['hidden_states'][-1] - hf_hidden_states[-1]
+        print(tf.norm(diff0, axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+        print(tf.norm(diff1, axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+        print(tf.norm(diff2, axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+        print(tf.norm(output['hidden_states'][1], axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
 
     def test_call_HuggingFace_textpair(self):
         text1 = u'磁铁会吸引某些金属，但也会排斥其他磁铁，那么为什么人们只能感觉到地心引力呢？'
@@ -142,13 +143,14 @@ class TransformerTestCase(unittest.TestCase):
 
         hf_hidden_states = huggingface_model_output(text1, text2, maxlen = 80)
 
-        diff0 = output.hidden_states[0] - hf_hidden_states[0]
-        diff1 = output.hidden_states[1] - hf_hidden_states[1]
-        diff2 = output.hidden_states[-1] - hf_hidden_states[-1]
-        print(tf.norm(diff0, axis = -1))
-        print(tf.norm(diff1, axis = -1))
-        print(tf.norm(diff2, axis = -1))
-        print(tf.norm(output.hidden_states[1], axis = -1) / tf.sqrt(float(output.hidden_states[1].shape[-1])))
+        diff0 = output['hidden_states'][0] - hf_hidden_states[0]
+        diff1 = output['hidden_states'][1] - hf_hidden_states[1]
+        diff2 = output['hidden_states'][-1] - hf_hidden_states[-1]
+        print(tf.norm(diff0, axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+        print(tf.norm(diff1, axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+        print(tf.norm(diff2, axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+        print(tf.norm(output['hidden_states'][1], axis = -1) / tf.sqrt(float(output['hidden_states'][1].shape[-1])))
+
 
     def test_LMHead(self):
         config = BertConfig(path = hf_config_path)
@@ -162,7 +164,7 @@ class TransformerTestCase(unittest.TestCase):
         inputs = tokenizer([text], return_np = True, return_dict = True)
         output = bert(inputs, output_hidden_states = False)
 
-        tokens = logits_to_tokens(output.logits, tokenizer, topk = 5)
+        tokens = logits_to_tokens(output['logits'], tokenizer, topk = 5)
         print(tokens)
 
         hf_logits = higgingface_lmlmodel_output(text)
@@ -181,7 +183,7 @@ class TransformerTestCase(unittest.TestCase):
         inputs = tokenizer([text], return_np = True, return_dict = True)
         output = bert(inputs, output_hidden_states = False)
 
-        tokens = logits_to_tokens(output.logits, tokenizer, topk = 5)
+        tokens = logits_to_tokens(output['logits'], tokenizer, topk = 5)
         print(tokens)
 
     def test_call_batch(self):
@@ -197,9 +199,32 @@ class TransformerTestCase(unittest.TestCase):
 
         hf_pooler_output = higgingface_pooler_output([text1, text2])
         
-        diff = output.pooler_output - hf_pooler_output
+        diff = output['pooler_output'] - hf_pooler_output
         print(tf.norm(diff, axis = -1) / tf.sqrt(float(diff.shape[-1])))
-        print(tf.norm(output.pooler_output, axis = -1) / tf.sqrt(float(diff.shape[-1])))
+        print(tf.norm(output['pooler_output'], axis = -1) / tf.sqrt(float(diff.shape[-1])))
+
+    def test_build_model(self):
+        input_dim = 64
+        config = BertConfig(path = self.config_path)
+        bert_model = BertModel(config, head_type = 'lml', causal_attention_mask = True, name = 'bert')
+        bert_model.from_checkpoint(self.checkpoint_path)
+
+        inputs = dict(input_ids=keras.layers.Input(shape=(input_dim,), dtype=tf.int32),
+                        attention_mask=keras.layers.Input(shape=(input_dim, ), dtype=tf.int32))
+            
+        output = bert_model(inputs, return_dict = False)
+        
+        model = keras.models.Model(inputs, output['logits'], name = 'TFBert')
+          
+        model.compile(optimizer = keras.optimizers.Adam(learning_rate = 3e-5), loss = 'mse')
+
+        print(model.summary())
+
+        tokenizer = Tokenizer(en_cased_vocab_path)
+        text = "Train the model for three epochs."
+        model_inputs = tokenizer([text], return_np = True, return_dict = True, maxlen = input_dim)
+        model_out = model(model_inputs)
+        print(model_out.shape)
 
 def logits_to_tokens(logits, tokenizer, topk):
     prob = tf.nn.softmax(logits, axis = -1)
@@ -259,6 +284,8 @@ def suite():
     suite.addTest(TransformerTestCase('test_LMHead'))
     suite.addTest(TransformerTestCase('test_causal_lml'))
     suite.addTest(TransformerTestCase('test_call_batch'))
+    suite.addTest(TransformerTestCase('test_build_model'))
+    
     
     return suite
 

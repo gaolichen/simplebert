@@ -19,6 +19,15 @@ def gelu(features, name = None):
 def lower_triangle_matrix(n):
     return np.tril([1] * n, k = 0)
 
+#@tf.function
+def shape_list(tensor):
+    ret = tensor.shape
+    if ret[0] is None:
+        return (1,) + ret[1:]
+    else:
+        return ret
+
+
 class CheckpointCache(object):
     def __init__(self, ckp_or_h5_path):
         super(CheckpointCache, self).__init__()
@@ -140,9 +149,10 @@ class PositionEmbedding(keras.layers.Layer):
     def call(self, input_ids):
         #has_id = tf.cast(tf.math.not_equal(input_ids, self.pad_id), dtype = input_ids.dtype)
         #position_ids = tf.math.multiply(tf.cumsum(has_id, axis = 1), has_id) + self.pad_id
-        position_ids = tf.expand_dims(tf.range(start = 0, limit = input_ids.shape[-1]), axis = 0)
+        input_shape = shape_list(input_ids)
+        position_ids = tf.expand_dims(tf.range(start = 0, limit = input_shape[-1]), axis = 0)
         output = tf.gather(self.embeddings, indices = position_ids)
-        return tf.tile(input = output, multiples = tf.constant([input_ids.shape[0], 1, 1]))
+        return tf.tile(input = output, multiples = (input_shape[0], 1, 1))
 
 class TransformerEmbedding(keras.layers.Layer):
     def __init__(self, vocab_size, dim, max_position_embeddings, name = None):
@@ -159,12 +169,13 @@ class TransformerEmbedding(keras.layers.Layer):
             self.dropout = keras.layers.Dropout(rate=0.1)
 
     def call(self, input_ids, token_type_ids = None, training = False):
+        input_shape = shape_list(input_ids)
+        
         x1 = self.word_embeddings(input_ids)
         x2 = self.position_embeddings(input_ids)
-        #x2 = tf.tile(input=x2, multiples=(input_ids.shape[0], 1, 1))
 
         if token_type_ids is None:
-            token_type_ids = tf.constant(0, shape = input_ids.shape)
+            token_type_ids = tf.constant(0, shape = input_shape)
         x3 = self.token_type_embeddings(token_type_ids)
 
         output = self.sum_layer([x1, x2, x3])
@@ -254,7 +265,7 @@ class MultiHeadedAttention(keras.layers.Layer):
             keys.shape = (batches, sequence_len, d_model)
             values.shape = (batches, sequence_len, d_model)
         """
-        batches = keys.shape[0]
+        batches = shape_list(keys)[0]
 
         # q_i = Q * W^Q_i
         querys = self.w_q(querys)
@@ -402,7 +413,7 @@ class LanguageModelHead(keras.layers.Layer):
     def call(self, x, training = False):
         hidden_states = self.dense(x)
         hidden_states = self.norm(hidden_states)
-        seq_length = hidden_states.shape[1]
+        seq_length = shape_list(hidden_states)[1]
         hidden_states = tf.reshape(hidden_states, shape = (-1, self.hidden_size))
         hidden_states = tf.matmul(a = hidden_states, b = self.word_embedding.weight, transpose_b = True)
         hidden_states = tf.reshape(hidden_states, shape=(-1, seq_length, self.vocab_size))
@@ -410,17 +421,36 @@ class LanguageModelHead(keras.layers.Layer):
 
         return hidden_states
 
+#from collections import OrderedDict
+#from dataclasses import dataclass
 
-class BertOutput(object):
-    def __init__(self,
-                 sequence_output = None,
-                 pooler_output = None,
-                 logits = None,
-                 hidden_states = None):
-        self.sequence_output = sequence_output
-        self.pooler_output = pooler_output
-        self.logits = logits
-        self.hidden_states = hidden_states
+
+#class BertOutput(OrderedDict):
+#    def __init__(self,
+#                 sequence_output = None,
+#                 pooler_output = None,
+#                 logits = None,
+#                 hidden_states = None, **kwargs):
+        
+#        super(BertOutput, self).__init__(**kwargs)
+        
+#        #self.dict = OrderedDict()
+#        self.sequence_output = sequence_output
+#        if sequence_output is not None:
+#            self['sequence_output'] = sequence_output
+            
+#        self.pooler_output = pooler_output
+#        if pooler_output is not None:
+#            self['pooler_output'] = pooler_output
+
+#        self.logits = logits
+#        if logits is not None:
+#            self['logits'] = logits
+
+#        self.hidden_states = hidden_states
+#        if hidden_states is not None and len(hidden_states) > 0:
+#            self['hidden_states'] = hidden_states
+
 
 class Transformer(keras.models.Model):
     """
@@ -441,7 +471,7 @@ class Transformer(keras.models.Model):
         self.pooler = TransformerPooler(config, name = 'pooler') if head_type == 'pooler' else None
         self.lml = LanguageModelHead(config, word_embedding = self.embeddings.word_embeddings, name = 'predictions') if head_type == 'lml' else None
     
-    def call(self, inputs, output_hidden_states = False, training = False):
+    def call(self, inputs, output_hidden_states = False, training = False, return_dict = True):
         if isinstance(inputs, (list, tuple)):
             input_ids = inputs[0]
             token_type_ids = inputs[1] if len(inputs) > 1 else None
@@ -454,36 +484,47 @@ class Transformer(keras.models.Model):
         else:
             raise ValueError('The type of inputs should be list or dictionary.')
         
-        hidden_states = []
+        input_shape = shape_list(input_ids)
+        
+#        last_hidden_state = tf.ones(input_shape + (self.config.hidden_size))
+#        output = tf.ones(input_shape + (self.config.hidden_size,))
+#        logits = tf.ones(input_shape + (self.config.vocab_size,))
+#        pooler_output = tf.ones((input_shape[0], self.config.hidden_size))
+        
+        hidden_states = [] if output_hidden_states else None
         output = self.embeddings(input_ids, token_type_ids, training = training)
         
         if output_hidden_states:
             hidden_states.append(output)
 
         if self.causal_attention_mask:
-            attention_mask = tf.constant(lower_triangle_matrix(input_ids.shape[-1]))
-            attention_mask = tf.reshape(attention_mask, shape = (1, 1, input_ids.shape[-1], input_ids.shape[-1]))
+            attention_mask = tf.constant(lower_triangle_matrix(input_shape[-1]))
+            attention_mask = tf.reshape(attention_mask, shape = (1, 1, input_shape[-1], input_shape[-1]))
             
         else:
             if attention_mask is None:
-                attention_mask = tf.constant(1.0, shape = input_ids.shape, dtype = 'float32')
+                attention_mask = tf.constant(1.0, shape = input_shape, dtype = 'float32')
             # attention_mask now has shape (batches, sequence_len),
             # we need to covert it to (batches, 1, 1, sequence_len)
             # so that later it will broadcast to (batches, num_attention_heads, sequence_len, sequence_len)
-            attention_mask = tf.reshape(attention_mask, shape = (input_ids.shape[0], 1, 1, input_ids.shape[-1]))
+            attention_mask = tf.reshape(attention_mask, shape = (input_shape[0], 1, 1, input_shape[-1]))
 
             
+        
         last_hidden_state, layer_outputs = self.encoder(output, attention_mask, output_hidden_states = output_hidden_states, training = training)
         if output_hidden_states:
             hidden_states.extend(layer_outputs)
             
-        pooler_output = self.pooler(last_hidden_state[:,0]) if self.pooler else None
+        pooler_output = self.pooler(tf.gather(last_hidden_state, indices = 0, axis = 1)) if self.pooler else None
         logits = self.lml(last_hidden_state) if self.lml else None
 
-        return BertOutput(sequence_output = last_hidden_state,
-                          pooler_output = pooler_output,
-                          logits = logits,
-                          hidden_states = hidden_states)
+        res = {'sequence_output': last_hidden_state,
+               'pooler_output': pooler_output,
+               'logits': logits,
+               'hidden_states': hidden_states}
+
+        return {k : v for k, v in res.items() if v is not None}
+
 
     def _clean_weight_name(self, weight_name):
         if not weight_name.startswith(self.name + '/'):
