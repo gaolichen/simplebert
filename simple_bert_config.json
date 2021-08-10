@@ -1,0 +1,129 @@
+{
+  "cache_dir": "${HOME_PATH}/.cache/",
+  "models": [
+    {
+      "name": "bert-base-chinese",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2018_11_03/chinese_L-12_H-768_A-12.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "0"
+    },
+
+    {
+      "name": "bert-base-uncased",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-12_H-768_A-12.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "0"
+    },
+
+    {
+      "name": "bert-base-cased",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2018_10_18/cased_L-12_H-768_A-12.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "1"
+    },
+
+    {
+      "name": "bert-base-cased-multi-lang",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2018_11_23/multi_cased_L-12_H-768_A-12.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "1"
+    },
+
+    {
+      "name": "bert-large-uncased",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2018_10_18/uncased_L-24_H-1024_A-16.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "0"
+    },
+
+    {
+      "name": "bert-large-cased",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2018_10_18/cased_L-24_H-1024_A-16.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "1"
+    },
+
+    {
+      "name": "bert-large-cased-whole-word-masking",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2019_05_30/wwm_cased_L-24_H-1024_A-16.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "1"
+    },
+
+    {
+      "name": "bert-large-uncased-whole-word-masking",
+      "class": "BertModel",
+      "download_url": "https://storage.googleapis.com/bert_models/2019_05_30/wwm_uncased_L-24_H-1024_A-16.zip",
+      "vocab_file": "vocab.txt",
+      "config_file": "bert_config.json",
+      "checkpoint_file": "bert_model.ckpt",
+      "cased": "0"
+    },
+
+    {
+      "name": "huggingface-bert-base-uncased",
+      "class": "HuggingFaceBertModel",
+      "vocab_file": "https://huggingface.co/bert-base-uncased/resolve/main/vocab.txt",
+      "config_file": "https://huggingface.co/bert-base-uncased/resolve/main/config.json",
+      "checkpoint_file": "https://huggingface.co/bert-base-uncased/resolve/main/tf_model.h5",
+      "cased": "0"
+    },
+
+    {
+      "name": "huggingface-bert-base-cased",
+      "class": "HuggingFaceBertModel",
+      "vocab_file": "https://huggingface.co/bert-base-cased/resolve/main/vocab.txt",
+      "config_file": "https://huggingface.co/bert-base-cased/resolve/main/config.json",
+      "checkpoint_file": "https://huggingface.co/bert-base-cased/resolve/main/tf_model.h5",
+      "cased": "1"
+    },
+
+    {
+      "name": "huggingface-bert-large-uncased",
+      "class": "HuggingFaceBertModel",
+      "vocab_file": "https://huggingface.co/bert-large-uncased/resolve/main/vocab.txt",
+      "config_file": "https://huggingface.co/bert-large-uncased/resolve/main/config.json",
+      "checkpoint_file": "https://huggingface.co/bert-large-uncased/resolve/main/tf_model.h5",
+      "cased": "0"
+    },
+
+    {
+      "name": "huggingface-bert-large-cased",
+      "class": "HuggingFaceBertModel",
+      "vocab_file": "https://huggingface.co/bert-large-cased/resolve/main/vocab.txt",
+      "config_file": "https://huggingface.co/bert-large-cased/resolve/main/config.json",
+      "checkpoint_file": "https://huggingface.co/bert-large-cased/resolve/main/tf_model.h5",
+      "cased": "1"
+    },
+
+    {
+      "name": "huggingface-bert-base-chinese",
+      "class": "HuggingFaceBertModel",
+      "vocab_file": "https://huggingface.co/bert-base-chinese/resolve/main/vocab.txt",
+      "config_file": "https://huggingface.co/bert-base-chinese/resolve/main/config.json",
+      "checkpoint_file": "https://huggingface.co/bert-base-chinese/resolve/main/tf_model.h5",
+      "cased": "0"
+    }
+  ]
+}

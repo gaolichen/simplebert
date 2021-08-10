@@ -1,13 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*- 
-import tensorflow as tf
-import tensorflow.keras as keras
-import tensorflow.keras.backend as K
-import numpy as np
 import copy
 import json
 import h5py
+import os
+import numpy as np
+import tensorflow as tf
+import tensorflow.keras as keras
+import tensorflow.keras.backend as K
 from tensorflow.python.keras.saving import hdf5_format
+
+from checkpoint import checkpoint_manager
 
 def get_initializer(init_range):
     return keras.initializers.RandomNormal(mean = 0.0, stddev = init_range)
@@ -21,12 +24,7 @@ def lower_triangle_matrix(n):
 
 #@tf.function
 def shape_list(tensor):
-    ret = tensor.shape
-    if ret[0] is None:
-        return (1,) + ret[1:]
-    else:
-        return ret
-
+    return tensor.shape
 
 class CheckpointCache(object):
     def __init__(self, ckp_or_h5_path):
@@ -71,7 +69,7 @@ class CheckpointCache(object):
 
 class BertConfig(object):
     
-    def __init__(self, path, **kwargs):
+    def __init__(self, path, **kwargs):            
         with open(path) as f:
             self._config = json.load(f)
 
@@ -132,7 +130,7 @@ class PositionEmbedding(keras.layers.Layer):
 
     def build(self, input_shape):
         # initialize positional encoding
-        self.embeddings = self.add_weight(shape = (self.max_len, self.dim), trainable = False,
+        self.embeddings = self.add_weight(shape = (self.max_len, self.dim), trainable = True,
                                           initializer = keras.initializers.Constant(), name = 'embeddings')
         
         exponents = -tf.range(0, self.dim, 2, dtype = 'float32') * tf.math.log(10000.0)
@@ -152,7 +150,10 @@ class PositionEmbedding(keras.layers.Layer):
         input_shape = shape_list(input_ids)
         position_ids = tf.expand_dims(tf.range(start = 0, limit = input_shape[-1]), axis = 0)
         output = tf.gather(self.embeddings, indices = position_ids)
-        return tf.tile(input = output, multiples = (input_shape[0], 1, 1))
+        if input_shape[0] is not None:
+            return tf.tile(input = output, multiples = (input_shape[0], 1, 1))
+        else:
+            return output
 
 class TransformerEmbedding(keras.layers.Layer):
     def __init__(self, vocab_size, dim, max_position_embeddings, name = None):
@@ -175,7 +176,7 @@ class TransformerEmbedding(keras.layers.Layer):
         x2 = self.position_embeddings(input_ids)
 
         if token_type_ids is None:
-            token_type_ids = tf.constant(0, shape = input_shape)
+            token_type_ids = tf.fill(tf.shape(input_ids), 0)
         x3 = self.token_type_embeddings(token_type_ids)
 
         output = self.sum_layer([x1, x2, x3])
@@ -203,8 +204,6 @@ class SublayerConnection(tf.keras.layers.Layer):
         self.dropout = keras.layers.Dropout(rate = dropout_rate)
 
     def call(self, x, output, **kwargs):
-        #output = self.dense(output)
-        #return tf.add(x, self.dropout(self.norm(output)))
         output = self.dropout(self.dense(output))
         return self.norm(x + output)
 
@@ -265,11 +264,13 @@ class MultiHeadedAttention(keras.layers.Layer):
             keys.shape = (batches, sequence_len, d_model)
             values.shape = (batches, sequence_len, d_model)
         """
-        batches = shape_list(keys)[0]
+
+        sequence_len = shape_list(keys)[1]
 
         # q_i = Q * W^Q_i
+        #print('query.shape=', querys.shape)
         querys = self.w_q(querys)
-        querys = tf.reshape(querys, shape = (batches, -1, self.num_attention_heads, self.d_k))
+        querys = tf.reshape(querys, shape = (-1, sequence_len, self.num_attention_heads, self.d_k))
         # At this point, the shapes of querys, keys, and values are (batches, sequence_len, num_attention_heads, d_k)
         # we need to change the shapes to (batches, num_attention_heads, sequence_len, d_k)
         querys = tf.transpose(querys, perm = [0, 2, 1, 3])
@@ -277,12 +278,12 @@ class MultiHeadedAttention(keras.layers.Layer):
         # the same operations on keys and values
         # k_i = K * W^K_i
         keys = self.w_k(keys)
-        keys = tf.reshape(keys, shape = (batches, -1, self.num_attention_heads, self.d_k))
+        keys = tf.reshape(keys, shape = (-1, sequence_len, self.num_attention_heads, self.d_k))
         keys = tf.transpose(keys, perm = [0, 2, 1, 3])
         
         # v_i = V * W^V_i
         values = self.w_v(values)
-        values = tf.reshape(values, shape = (batches, -1, self.num_attention_heads, self.d_k))
+        values = tf.reshape(values, shape = (-1, sequence_len, self.num_attention_heads, self.d_k))
         values = tf.transpose(values, perm = [0, 2, 1, 3])
 
         v, self.attn = attention(querys, keys, values, mask = mask, dropout = self.dropout)
@@ -290,7 +291,7 @@ class MultiHeadedAttention(keras.layers.Layer):
         # the shape of v is (batches, h, sequence_len, d_k)
         # we need to change it to (batches, sequence_len, num_attention_heads, d_k)
         # and then concatenate last two dims (batches, sequence_len, num_attention_heads * d_k)
-        return tf.reshape(tf.transpose(v, perm = [0, 2, 1, 3]), (batches, -1, self.num_attention_heads * self.d_k))
+        return tf.reshape(tf.transpose(v, perm = [0, 2, 1, 3]), (-1, sequence_len, self.num_attention_heads * self.d_k))
 
 
 class AttentionLayer(keras.layers.Layer):
@@ -421,42 +422,14 @@ class LanguageModelHead(keras.layers.Layer):
 
         return hidden_states
 
-#from collections import OrderedDict
-#from dataclasses import dataclass
-
-
-#class BertOutput(OrderedDict):
-#    def __init__(self,
-#                 sequence_output = None,
-#                 pooler_output = None,
-#                 logits = None,
-#                 hidden_states = None, **kwargs):
-        
-#        super(BertOutput, self).__init__(**kwargs)
-        
-#        #self.dict = OrderedDict()
-#        self.sequence_output = sequence_output
-#        if sequence_output is not None:
-#            self['sequence_output'] = sequence_output
-            
-#        self.pooler_output = pooler_output
-#        if pooler_output is not None:
-#            self['pooler_output'] = pooler_output
-
-#        self.logits = logits
-#        if logits is not None:
-#            self['logits'] = logits
-
-#        self.hidden_states = hidden_states
-#        if hidden_states is not None and len(hidden_states) > 0:
-#            self['hidden_states'] = hidden_states
-
-
 class Transformer(keras.models.Model):
     """
     base class of transformers
     """
-    def __init__(self, config, causal_attention_mask = False, head_type = None, **kwargs):
+    def __init__(self, config,
+                 model_head = None,
+                 causal_attention_mask = False,
+                 **kwargs):
         super(Transformer, self).__init__(**kwargs)
 
         self.config = config
@@ -467,11 +440,21 @@ class Transformer(keras.models.Model):
                                                name = 'embeddings')
 
         self.encoder = Encoder(config, name = 'encoder')
-        
-        self.pooler = TransformerPooler(config, name = 'pooler') if head_type == 'pooler' else None
-        self.lml = LanguageModelHead(config, word_embedding = self.embeddings.word_embeddings, name = 'predictions') if head_type == 'lml' else None
+
+        if model_head is None:
+            model_head = []
+        elif isinstance(model_head, str):
+            model_head = [model_head]
+
+        if not isinstance(model_head, (list, tuple)):
+            raise ValueError('model_head should be of type str or list of str')
+
+        self.pooler = TransformerPooler(config, name = 'pooler') if 'pooler' in model_head else None
+        self.lml = LanguageModelHead(config,
+                                     word_embedding = self.embeddings.word_embeddings,
+                                     name = 'predictions') if 'lml' in model_head else None
     
-    def call(self, inputs, output_hidden_states = False, training = False, return_dict = True):
+    def call(self, inputs, output_hidden_states = False, training = False):
         if isinstance(inputs, (list, tuple)):
             input_ids = inputs[0]
             token_type_ids = inputs[1] if len(inputs) > 1 else None
@@ -537,8 +520,9 @@ class Transformer(keras.models.Model):
         return self.name + '/' + weight_name
 
 
-    def from_checkpoint(self, ckp_path):
-        ckc = CheckpointCache(ckp_path)
+    def load_checkpoint(self, checkpoint_path):
+        ckc = CheckpointCache(checkpoint_path)
+
         dymmy_inputs = np.array([[0,1,2]])
         self([dymmy_inputs])
         
@@ -623,3 +607,30 @@ class HuggingFaceBertModel(Transformer):
             raise ValueError(f'Invalid variable name {key}')
 
 
+name_to_class = {}
+
+def register_class(cls):
+    name_to_class[cls.__name__] = cls
+
+register_class(BertModel)
+register_class(HuggingFaceBertModel)
+
+
+def model_from_pretrained(model_name,
+                          model_head = None,
+                          causal_attention_mask = False,
+                          **kwargs):
+    
+    class_name = checkpoint_manager.get_class(model_name)
+    if not class_name in name_to_class:
+        raise ValueError(f'{class_name} is not a valid Transformer class.')
+    
+    cls = name_to_class[class_name]
+    config = BertConfig(checkpoint_manager.get_config_path(model_name))
+    model = cls(config = config, model_head = model_head, causal_attention_mask = causal_attention_mask, **kwargs)
+
+    checkpoint_path = checkpoint_manager.get_checkpoint_path(model_name)
+    model.load_checkpoint(checkpoint_path)
+    
+    return model
+    

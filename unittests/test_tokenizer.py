@@ -20,7 +20,7 @@ parent = os.path.dirname(current)
 # the sys.path.
 sys.path.append(parent)
 
-from tokenizer import Tokenizer
+from tokenizer import Tokenizer, tokenizer_from_pretrained
 
 en_cased_vocab_path = './testdata/bert-base-cased-vocab.txt'
 testdata_en_cased_path = './testdata/testdata_tokenizer_en_cased.json'
@@ -60,6 +60,13 @@ class TokenizerTestCase(unittest.TestCase):
         self.assertTrue(tokenizer.cls_token_id > 0)
         self.assertTrue(tokenizer.sep_token_id > 0)
         self.assertTrue(tokenizer.mask_token_id > 0)
+
+        # test special tokens
+        self.assertTrue(tokenizer.pad_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.unk_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.cls_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.sep_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.mask_token in tokenizer.special_tokens)
         
     def test_constructor_en_cased(self):
         tokenizer = load_testdata(en_cased_vocab_path)
@@ -104,7 +111,7 @@ class TokenizerTestCase(unittest.TestCase):
         
     def _test_tokenize(self, tokenizer, testdatas):
         for testdata in testdatas:
-            tokens = tokenizer.tokenize(testdata['text'], use_unk_token = True)
+            tokens = tokenizer.tokenize(testdata['text'], replace_unknown_token = True)
             self.assertEqual(tokens, testdata['tokens'])
             #decoded = testdata['decode'][len(tokenizer.cls_token):-len(tokenizer.sep_token)].strip()
             #self.assertEqual(tokenizer.tokens_to_text(tokens), testdata['text'])
@@ -124,10 +131,11 @@ class TokenizerTestCase(unittest.TestCase):
     def test_tokenize_cjk(self):
         tokenizer = load_testdata(cn_vocab_path)
         text = u'原标题：打哭伊藤美诚！孙颖莎一个词形容：过瘾！……'
-        tokens = tokenizer.tokenize(text, use_unk_token = False)
+        tokens = tokenizer.tokenize(text, replace_unknown_token = False)
 
         self.assertEqual(len(tokens), len(text))
         self.assertEqual(tokenizer.tokens_to_text(tokens), text)
+
 
     def test_tokenize_cjk_en_mix(self):
         tokenizer = load_testdata(cn_vocab_path)
@@ -137,6 +145,21 @@ class TokenizerTestCase(unittest.TestCase):
         tokens = tokenizer.tokenize(text)
 
         self.assertEqual(tokenizer.tokens_to_text(tokens), text)
+
+    def test_tokenize_special_tokens_cn(self):
+        tokenizer = load_testdata(cn_vocab_path)
+        for tok in tokenizer.special_tokens:
+            text = f'原标题：打哭伊藤美诚！孙颖莎一{tok}词形容：过瘾！'
+            tokens = tokenizer.tokenize(text, replace_unknown_token = False)
+            self.assertTrue(tok in tokens, f'tok={tok}, tokens={tokens}')
+
+    def test_tokenize_special_tokens_en(self):
+        tokenizer = load_testdata(en_uncased_vocab_path)
+        for tok in tokenizer.special_tokens:
+            text = f"You'll need to keep any subtypes in {tok} if you've opted for this approach."
+            tokens = tokenizer.tokenize(text, replace_unknown_token = False)
+            self.assertTrue(tok in tokens, f'tok={tok}, tokens={tokens}')
+            
 
     def _test_encode(self, tokenizer, testdatas):
         for testdata in testdatas:
@@ -222,6 +245,10 @@ class TokenizerTestCase(unittest.TestCase):
                         print('input_ids=', input_ids)
                         print('expected_input_ids=', expected_input_ids)
                     self.assertEqual(input_ids, expected_input_ids)
+                    
+    def test_from_pretrained(self):
+        tokenizer = tokenizer_from_pretrained(model_name = 'bert-base-chinese')
+        self.assertFalse(tokenizer.cased)
             
 
     def test_call_en_cased(self):
@@ -254,6 +281,8 @@ def suite():
 
     suite.addTest(TokenizerTestCase('test_tokenize_cjk'))
     suite.addTest(TokenizerTestCase('test_tokenize_cjk_en_mix'))
+    suite.addTest(TokenizerTestCase('test_tokenize_special_tokens_cn'))
+    suite.addTest(TokenizerTestCase('test_tokenize_special_tokens_en'))
 
     suite.addTest(TokenizerTestCase('test_encode_cn'))
     suite.addTest(TokenizerTestCase('test_encode_en_cased'))
@@ -262,6 +291,7 @@ def suite():
     suite.addTest(TokenizerTestCase('test_call_en_cased'))
     suite.addTest(TokenizerTestCase('test_call_en_uncased'))
     suite.addTest(TokenizerTestCase('test_call_cn'))
+    suite.addTest(TokenizerTestCase('test_from_pretrained'))
     
     #suite = unittest.defaultTestLoader.loadTestsFromTestCase(TokenizerTestCase)
     

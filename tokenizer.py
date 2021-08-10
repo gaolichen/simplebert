@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*- 
 import utils
+import os
 import numpy as np
+from checkpoint import checkpoint_manager
 
 class Tokenizer(object):
-    def __init__(self, path, cased = True):
+    def __init__(self, vocab_path, cased = True):
         super(Tokenizer, self).__init__()
-
+            
         self.cased = cased
 
         self.pad_token = '[PAD]'
@@ -16,11 +18,12 @@ class Tokenizer(object):
         self.mask_token = '[MASK]'
 
         self._token_id_dict = {}
-        with open(path, encoding='utf-8') as f:
+        with open(vocab_path, encoding='utf-8') as f:
             for tok in f.readlines():
                 self._token_id_dict[tok.strip()] = len(self._token_id_dict)
 
         self._id_token_dict = {v : k for k, v in self._token_id_dict.items()}
+        self.vocab_size = len(self._token_id_dict)
 
         self.pad_token_id = self._token_id_dict[self.pad_token]
         self.unk_token_id = self._token_id_dict[self.unk_token]
@@ -28,7 +31,20 @@ class Tokenizer(object):
         self.sep_token_id = self._token_id_dict[self.sep_token]
         self.mask_token_id = self._token_id_dict[self.mask_token]
 
-    def tokenize(self, text, use_unk_token = False):
+        self.special_tokens = [self.pad_token,
+                               self.unk_token,
+                               self.cls_token,
+                               self.sep_token,
+                               self.mask_token]
+
+        self.special_token_ids = [self.pad_token_id,
+                               self.unk_token_id,
+                               self.cls_token_id,
+                               self.sep_token_id,
+                               self.mask_token_id]
+        
+
+    def tokenize(self, text, replace_unknown_token = False):
         words = []
         # first split text into words
         word = ''
@@ -52,9 +68,9 @@ class Tokenizer(object):
                 add_word()
                 words.append(ch)
             elif ch == ']':
-                if len(words) >= 1 and words[-1] == '[' and word == 'MASK':
-                    # this is a [MASK] token
-                    words[-1] = self.mask_token
+                if len(words) >= 1 and words[-1] == '[' and '[' + word + ']' in self.special_tokens:
+                    # this is a special token
+                    words[-1] = '[' + word + ']'
                     word = ''
                 else:
                     add_word()
@@ -72,11 +88,11 @@ class Tokenizer(object):
         # perform word piece tokenization
         tokens = []
         for word in words:
-            tokens.extend(self._tokenize(word, use_unk_token))
+            tokens.extend(self._tokenize(word, replace_unknown_token))
                 
         return tokens
 
-    def _tokenize(self, word, use_unk_token):
+    def _tokenize(self, word, replace_unknown_token):
         tokens = []
         start = 0
         while start < len(word):
@@ -97,7 +113,7 @@ class Tokenizer(object):
                 start = end
             else:
                 # did not find a known token
-                if use_unk_token:
+                if replace_unknown_token:
                     return [self.unk_token]
                 else:
                     return [word]
@@ -215,3 +231,7 @@ class Tokenizer(object):
             else:
                 ret.append(input + [pad_id] * (maxlen - len(input)))
         return ret
+
+def tokenizer_from_pretrained(model_name):
+    vocab_path = checkpoint_manager.get_vocab_path(model_name)
+    return Tokenizer(vocab_path, cased = checkpoint_manager.get_cased(model_name))
