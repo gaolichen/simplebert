@@ -23,7 +23,7 @@ sys.path.append(simple_bert_dir)
 # now we can import the module in the parent
 # directory.
 
-from simplebert.checkpoint import CheckpointManager, ModuleConfig
+from simplebert.pretrained import CheckpointManager, ModuleConfig
 
 class ModuleConfigTestCase(unittest.TestCase):
 

@@ -2,15 +2,13 @@
 # -*- coding: utf-8 -*- 
 import copy
 import json
-import h5py
 import os
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
-from tensorflow.python.keras.saving import hdf5_format
 
-from simplebert.checkpoint import checkpoint_manager
+from simplebert.pretrained import CheckpointCache, checkpoint_manager
 
 def get_initializer(init_range):
     return keras.initializers.RandomNormal(mean = 0.0, stddev = init_range)
@@ -25,47 +23,6 @@ def lower_triangle_matrix(n):
 #@tf.function
 def shape_list(tensor):
     return tensor.shape
-
-class CheckpointCache(object):
-    def __init__(self, ckp_or_h5_path):
-        super(CheckpointCache, self).__init__()
-
-        self.ckp_or_h5_path = ckp_or_h5_path
-
-        if ckp_or_h5_path.endswith('.h5'):
-            self.shape_from_key = {}
-            self.dtype_from_key = {}
-            self.values_from_key = {}
-            with h5py.File(ckp_or_h5_path, 'r') as f:
-                layers_name = set(hdf5_format.load_attributes_from_hdf5_group(f, "layer_names"))
-                for layer_name in layers_name:
-                    layer_object = f[layer_name]
-                    for weight_name in hdf5_format.load_attributes_from_hdf5_group(layer_object, "weight_names"):
-                        key = '/'.join(weight_name.split('/')[1:])
-                        #print(key)
-                        weights = np.asarray(layer_object[weight_name])
-                        self.shape_from_key[key] = weights.shape
-                        self.dtype_from_key[key] = weights.dtype
-                        self.values_from_key[key] = weights
-        else:
-            reader = tf.train.load_checkpoint(ckp_or_h5_path)
-            self.shape_from_key = reader.get_variable_to_shape_map()
-            self.dtype_from_key = reader.get_variable_to_dtype_map()
-
-    def keys(self):
-        return list(self.shape_from_key.keys())
-
-    def get_shape(self, key):
-        return self.shape_from_key[key]
-
-    def get_dtype(self, key):
-        return self.dtype_from_key[key]
-
-    def get_values(self, key):
-        if self.ckp_or_h5_path.endswith('.h5'):
-            return self.values_from_key[key]
-        else:
-            return tf.train.load_variable(self.ckp_or_h5_path, key)
 
 class BertConfig(object):
     

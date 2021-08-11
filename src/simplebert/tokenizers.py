@@ -3,7 +3,7 @@
 import os
 import numpy as np
 from simplebert import utils
-from simplebert.checkpoint import checkpoint_manager
+from simplebert.pretrained import checkpoint_manager
 
 class Tokenizer(object):
     def __init__(self, vocab_path, cased = True):

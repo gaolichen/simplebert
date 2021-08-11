@@ -22,7 +22,7 @@ simple_bert_dir=os.path.join(parent, 'src')
 # the sys.path.
 sys.path.append(simple_bert_dir)
 
-from simplebert.tokenizer import Tokenizer, tokenizer_from_pretrained
+from simplebert.tokenizers import Tokenizer, tokenizer_from_pretrained
 
 en_cased_vocab_path = os.path.join(current, './testdata/bert-base-cased-vocab.txt')
 testdata_en_cased_path = os.path.join(current, './testdata/testdata_tokenizer_en_cased.json')

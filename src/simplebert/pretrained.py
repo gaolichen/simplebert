@@ -1,6 +1,10 @@
 import os
 import json
+import h5py
+import numpy as np
+import tensorflow as tf
 from tensorflow.keras.utils import get_file
+from tensorflow.python.keras.saving import hdf5_format
 
 class ModelInfo(object):
     def __init__(self, config):
@@ -158,6 +162,45 @@ class CheckpointManager(object):
             
         return dest_dir
 
+class CheckpointCache(object):
+    def __init__(self, ckp_or_h5_path):
+        super(CheckpointCache, self).__init__()
+
+        self.ckp_or_h5_path = ckp_or_h5_path
+
+        if ckp_or_h5_path.endswith('.h5'):
+            self.shape_from_key = {}
+            self.dtype_from_key = {}
+            self.values_from_key = {}
+            with h5py.File(ckp_or_h5_path, 'r') as f:
+                layers_name = set(hdf5_format.load_attributes_from_hdf5_group(f, "layer_names"))
+                for layer_name in layers_name:
+                    layer_object = f[layer_name]
+                    for weight_name in hdf5_format.load_attributes_from_hdf5_group(layer_object, "weight_names"):
+                        key = '/'.join(weight_name.split('/')[1:])
+                        weights = np.asarray(layer_object[weight_name])
+                        self.shape_from_key[key] = weights.shape
+                        self.dtype_from_key[key] = weights.dtype
+                        self.values_from_key[key] = weights
+        else:
+            reader = tf.train.load_checkpoint(ckp_or_h5_path)
+            self.shape_from_key = reader.get_variable_to_shape_map()
+            self.dtype_from_key = reader.get_variable_to_dtype_map()
+
+    def keys(self):
+        return list(self.shape_from_key.keys())
+
+    def get_shape(self, key):
+        return self.shape_from_key[key]
+
+    def get_dtype(self, key):
+        return self.dtype_from_key[key]
+
+    def get_values(self, key):
+        if self.ckp_or_h5_path.endswith('.h5'):
+            return self.values_from_key[key]
+        else:
+            return tf.train.load_variable(self.ckp_or_h5_path, key)
 
 module_config = ModuleConfig()
 checkpoint_manager = CheckpointManager(module_config)

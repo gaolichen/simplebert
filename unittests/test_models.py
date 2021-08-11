@@ -26,8 +26,8 @@ sys.path.append(simple_bert_dir)
   
 # now we can import the module in the parent
 # directory.
-from simplebert.transformer import BertConfig, Transformer, BertModel, HuggingFaceBertModel
-from simplebert.tokenizer import Tokenizer
+from simplebert.tokenizers import Tokenizer
+from simplebert.models import BertConfig, Transformer, BertModel, HuggingFaceBertModel
 
 config_path = os.path.join(current, './testdata/bert_config.json')
 hf_config_path = os.path.join(current, './testdata/hf_bert_config.json')
