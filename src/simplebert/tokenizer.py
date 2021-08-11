@@ -235,3 +235,8 @@ class Tokenizer(object):
 def tokenizer_from_pretrained(model_name):
     vocab_path = checkpoint_manager.get_vocab_path(model_name)
     return Tokenizer(vocab_path, cased = checkpoint_manager.get_cased(model_name))
+
+
+if __name__ == '__main__':
+    mytok = tokenizer_from_pretrained('huggingface-bert-base-cased')
+    print(mytok.cased)

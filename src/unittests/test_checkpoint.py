@@ -14,9 +14,11 @@ current = os.path.dirname(os.path.realpath(__file__))
 # where the current directory is present.
 parent = os.path.dirname(current)
   
+simple_bert_dir=os.path.join(parent, 'simplebert')
+  
 # adding the parent directory to 
 # the sys.path.
-sys.path.append(parent)
+sys.path.append(simple_bert_dir)
   
 # now we can import the module in the parent
 # directory.
