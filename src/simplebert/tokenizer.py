@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*- 
-import utils
+# -*- coding: utf-8 -*-
 import os
 import numpy as np
-from checkpoint import checkpoint_manager
+from simplebert import utils
+from simplebert.checkpoint import checkpoint_manager
 
 class Tokenizer(object):
     def __init__(self, vocab_path, cased = True):

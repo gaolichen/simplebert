@@ -15,23 +15,23 @@ current = os.path.dirname(os.path.realpath(__file__))
 # Getting the parent directory name
 # where the current directory is present.
 parent = os.path.dirname(current)
-  
-simple_bert_dir=os.path.join(parent, 'simplebert')
+
+simple_bert_dir=os.path.join(parent, 'src')
   
 # adding the parent directory to 
 # the sys.path.
 sys.path.append(simple_bert_dir)
 
-from tokenizer import Tokenizer, tokenizer_from_pretrained
+from simplebert.tokenizer import Tokenizer, tokenizer_from_pretrained
 
-en_cased_vocab_path = './testdata/bert-base-cased-vocab.txt'
-testdata_en_cased_path = './testdata/testdata_tokenizer_en_cased.json'
+en_cased_vocab_path = os.path.join(current, './testdata/bert-base-cased-vocab.txt')
+testdata_en_cased_path = os.path.join(current, './testdata/testdata_tokenizer_en_cased.json')
 
-en_uncased_vocab_path = './testdata/bert-base-uncased-vocab.txt'
-testdata_en_uncased_path = './testdata/testdata_tokenizer_en_uncased.json'
+en_uncased_vocab_path = os.path.join(current, './testdata/bert-base-uncased-vocab.txt')
+testdata_en_uncased_path = os.path.join(current, './testdata/testdata_tokenizer_en_uncased.json')
 
-cn_vocab_path = './testdata/bert-base-chinese-vocab.txt'
-testdata_cn_path = './testdata/testdata_tokenizer_cn.json'
+cn_vocab_path = os.path.join(current, './testdata/bert-base-chinese-vocab.txt')
+testdata_cn_path = os.path.join(current, './testdata/testdata_tokenizer_cn.json')
 
 
 def load_testdata(vocab_path, testdata_path = None, cased = True):

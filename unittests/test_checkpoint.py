@@ -14,7 +14,7 @@ current = os.path.dirname(os.path.realpath(__file__))
 # where the current directory is present.
 parent = os.path.dirname(current)
   
-simple_bert_dir=os.path.join(parent, 'simplebert')
+simple_bert_dir=os.path.join(parent, 'src')
   
 # adding the parent directory to 
 # the sys.path.
@@ -23,7 +23,7 @@ sys.path.append(simple_bert_dir)
 # now we can import the module in the parent
 # directory.
 
-from checkpoint import CheckpointManager, ModuleConfig
+from simplebert.checkpoint import CheckpointManager, ModuleConfig
 
 class ModuleConfigTestCase(unittest.TestCase):
 

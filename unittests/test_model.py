@@ -18,23 +18,23 @@ current = os.path.dirname(os.path.realpath(__file__))
 # where the current directory is present.
 parent = os.path.dirname(current)
   
-simple_bert_dir=os.path.join(parent, 'simplebert')
-  
+simple_bert_dir=os.path.join(parent, 'src')
+
 # adding the parent directory to 
 # the sys.path.
 sys.path.append(simple_bert_dir)
   
 # now we can import the module in the parent
 # directory.
-from transformer import BertConfig, Transformer, BertModel, HuggingFaceBertModel
-from tokenizer import Tokenizer
+from simplebert.transformer import BertConfig, Transformer, BertModel, HuggingFaceBertModel
+from simplebert.tokenizer import Tokenizer
 
-config_path = './testdata/bert_config.json'
-hf_config_path = './testdata/hf_bert_config.json'
+config_path = os.path.join(current, './testdata/bert_config.json')
+hf_config_path = os.path.join(current, './testdata/hf_bert_config.json')
 
-en_cased_vocab_path = './testdata/bert-base-cased-vocab.txt'
-en_uncased_vocab_path = './testdata/bert-base-uncased-vocab.txt'
-cn_vocab_path = './testdata/bert-base-chinese-vocab.txt'
+en_cased_vocab_path = os.path.join(current, './testdata/bert-base-cased-vocab.txt')
+en_uncased_vocab_path = os.path.join(current, './testdata/bert-base-uncased-vocab.txt')
+cn_vocab_path = os.path.join(current, './testdata/bert-base-chinese-vocab.txt')
 
 
 def average_norm(tensor, axis = -1):

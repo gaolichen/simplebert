@@ -10,7 +10,7 @@ import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 from tensorflow.python.keras.saving import hdf5_format
 
-from checkpoint import checkpoint_manager
+from simplebert.checkpoint import checkpoint_manager
 
 def get_initializer(init_range):
     return keras.initializers.RandomNormal(mean = 0.0, stddev = init_range)
@@ -633,4 +633,7 @@ def model_from_pretrained(model_name,
     model.load_checkpoint(checkpoint_path)
     
     return model
+
+if __name__ == '__main__':
+    print(name_to_class)
     
