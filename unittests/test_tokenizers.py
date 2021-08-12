@@ -188,14 +188,14 @@ class TokenizerTestCase(unittest.TestCase):
     def _test_call(self, tokenizer, testdatas):
         for testdata in testdatas:
             # simple test.
-            input_ids, token_type_ids, attention_mask = tokenizer(testdata['text'], return_dict = False)
+            input_ids, token_type_ids, attention_mask = tokenizer(testdata['text'], return_dict = False, return_np = False)
             self.assertEqual(token_type_ids[0], [0] * len(input_ids[0]))
             self.assertEqual(attention_mask[0], [1] * len(input_ids[0]))
             self.assertEqual(input_ids[0], testdata['token_ids'])
 
             # test return dict
             maxlen = 30
-            inputs = tokenizer(testdata['text'], return_dict = True, maxlen = maxlen)
+            inputs = tokenizer(testdata['text'], return_dict = True, maxlen = maxlen, return_np = False)
             input_ids = inputs['input_ids']
             token_type_ids = inputs['token_type_ids']
             attention_mask = inputs['attention_mask']
@@ -217,7 +217,7 @@ class TokenizerTestCase(unittest.TestCase):
                 for testdata2 in testdatas:
                     maxlen = 60
                     inputs = tokenizer(testdata1['text'], second_text = testdata2['text'],
-                                       return_dict = True, maxlen = maxlen)
+                                       return_dict = True, maxlen = maxlen, return_np = False)
                     
                     input_ids = inputs['input_ids'][0]
                     token_type_ids = inputs['token_type_ids'][0]
@@ -252,11 +252,7 @@ class TokenizerTestCase(unittest.TestCase):
                         print('input_ids=', input_ids)
                         print('expected_input_ids=', expected_input_ids)
                     self.assertEqual(input_ids, expected_input_ids)
-                    
-    def test_from_pretrained(self):
-        tokenizer = tokenizer_from_pretrained(model_name = 'bert-base-chinese')
-        self.assertFalse(tokenizer.cased)
-            
+                                
 
     def test_call_en_cased(self):
         tokenizer, testdata = load_testdata(en_cased_vocab_path, testdata_en_cased_path)
@@ -270,10 +266,26 @@ class TokenizerTestCase(unittest.TestCase):
         tokenizer, testdata = load_testdata(cn_vocab_path, testdata_cn_path)
         self._test_call(tokenizer, testdata)
 
+    def test_call_return_np(self):
+        tokenizer = load_testdata(cn_vocab_path)
+        text1 = u'以前，都在偏远乡村；现在，一座又一座省会城市。'
+        text2 = u'塔利班进城了。'
+        maxlen = max(len(text1), len(text2)) + 2
+
+        inputs = tokenizer([text1, text2], return_np = True)
+
+        self.assertEqual(inputs['input_ids'].shape, (2, maxlen))
+        self.assertEqual(inputs['token_type_ids'].shape, (2, maxlen))
+        self.assertEqual(inputs['attention_mask'].shape, (2, maxlen))
+
+    def test_from_pretrained(self):
+        tokenizer = tokenizer_from_pretrained(model_name = 'bert-base-chinese')
+        self.assertFalse(tokenizer.cased)
+
 
 def suite():
     suite = unittest.TestSuite()
-
+    
     suite.addTest(TokenizerTestCase('test_constructor_en_cased'))
     suite.addTest(TokenizerTestCase('test_constructor_en_uncased'))
     suite.addTest(TokenizerTestCase('test_constructor_cn'))
@@ -285,6 +297,7 @@ def suite():
     suite.addTest(TokenizerTestCase('test_tokenize_en_uncased'))
     suite.addTest(TokenizerTestCase('test_tokenize_en_cased'))
     suite.addTest(TokenizerTestCase('test_tokenize_cn'))
+    
 
     suite.addTest(TokenizerTestCase('test_tokenize_cjk'))
     suite.addTest(TokenizerTestCase('test_tokenize_cjk_en_mix'))
@@ -298,6 +311,8 @@ def suite():
     suite.addTest(TokenizerTestCase('test_call_en_cased'))
     suite.addTest(TokenizerTestCase('test_call_en_uncased'))
     suite.addTest(TokenizerTestCase('test_call_cn'))
+    
+    suite.addTest(TokenizerTestCase('test_call_return_np'))
     suite.addTest(TokenizerTestCase('test_from_pretrained'))
     
     #suite = unittest.defaultTestLoader.loadTestsFromTestCase(TokenizerTestCase)

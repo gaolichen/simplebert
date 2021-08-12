@@ -163,7 +163,28 @@ class Tokenizer(object):
             
 
     def __call__(self, first_text, second_text = None,
-                 maxlen = None, return_np = False, return_dict = True):
+                 maxlen = None, return_np = True, return_dict = True):
+        """Generates inputs for transformer model.
+
+            Args:
+                first_text:
+                    The text or a list of text to be processed.
+                second_text:
+                    The second text or a list of text to be processed. Used for task with sentence pair inputs.
+                maxlen:
+                    If set, returned lists are truncated or padded to `maxlen`.
+                return_np:
+                    If True, returned results are numpy arrays, otherwise returned values are python lists.
+                return_dict:
+                    If True, the method returns a dict object, otherwise returns a tuple.
+
+            Returns:
+                If `return_dict` is `True`, it returns dict of the form
+                {"input_ids": input_ids, "token_type_ids": token_type_ids, "attention_mask": attention_mask}.
+                If `return_dict` is `False`, it returns a tuple (input_ids, token_type_ids, attention_mask).
+                If `return_np` is `True`, all lists in the results are numpy arrays. Otherwise, all lists are
+                python lists.
+        """
         
         input_ids, segment_ids = self._to_input_ids(first_text, segment_id = 0)
 
@@ -181,6 +202,9 @@ class Tokenizer(object):
         attention_mask = []
         for id_list in input_ids:
             attention_mask.append([1] * len(id_list))
+
+        if maxlen is None and return_np:
+            maxlen = max([len(l) for l in input_ids])
 
         if maxlen is not None:
             input_ids = self._truncate(input_ids, maxlen, self.pad_token_id, keep_last = True)
