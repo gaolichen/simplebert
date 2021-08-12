@@ -1,3 +1,10 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+# @File    : pretrained.py
+# @Author  : Gaoli Chen
+# @Time    : 2021/07/09
+# @Desc    :
+
 import os
 import json
 import h5py
@@ -21,7 +28,7 @@ class ModuleConfig(object):
     def __init__(self, config_path = None, **kwargs):
         if config_path is None:
             current = os.path.dirname(os.path.realpath(__file__))
-            config_path = os.path.join(current, 'simple_bert_config.json')
+            config_path = os.path.join(current, 'pretrained_models.json')
             
         with open(config_path) as f:
             self._config = json.load(f)
@@ -74,10 +81,12 @@ class ModuleConfig(object):
 
 
 class CheckpointManager(object):
-    def __init__(self, module_config_or_path):
+    def __init__(self, module_config_or_path = None):
         super(CheckpointManager, self).__init__()
 
-        if isinstance(module_config_or_path, str):
+        if module_config_or_path is None:
+            self.config = ModuleConfig()
+        elif isinstance(module_config_or_path, str):
             self.config = ModuleConfig(module_config_or_path)
         else:
             self.config = module_config_or_path
@@ -105,7 +114,7 @@ class CheckpointManager(object):
         return info.class_name
 
     def _retrieve_model(self, model_name, attribute):
-        info = self.config.model_info(model_name)
+        info = self.config.model_info(name = model_name)
         #model_path = self.config.get_full_path(model_name)
         file_path = getattr(info, attribute)
         file_name = self._get_basename(file_path)
@@ -201,7 +210,3 @@ class CheckpointCache(object):
             return self.values_from_key[key]
         else:
             return tf.train.load_variable(self.ckp_or_h5_path, key)
-
-module_config = ModuleConfig()
-checkpoint_manager = CheckpointManager(module_config)
-        

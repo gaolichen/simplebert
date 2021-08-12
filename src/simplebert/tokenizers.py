@@ -1,11 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+# @File    : tokenizers.py
+# @Author  : Gaoli Chen
+# @Time    : 2021/07/09
+# @Desc    :
+
 import os
 import numpy as np
 from simplebert import utils
-from simplebert.pretrained import checkpoint_manager
+from simplebert.pretrained import CheckpointManager
 
 class Tokenizer(object):
+    """Tokenizer
+    """
     def __init__(self, vocab_path, cased = True):
         super(Tokenizer, self).__init__()
             
@@ -233,6 +240,17 @@ class Tokenizer(object):
         return ret
 
 def tokenizer_from_pretrained(model_name):
+    """Load tokenizer from pretrained models.
+
+        Args:
+            model_name:
+                The name of the pretrianed model configured in the pretrain_models.json
+
+        Returns:
+            A Tokenizer instance.
+    """
+    
+    checkpoint_manager = CheckpointManager()
     vocab_path = checkpoint_manager.get_vocab_path(model_name)
     return Tokenizer(vocab_path, cased = checkpoint_manager.get_cased(model_name))
 

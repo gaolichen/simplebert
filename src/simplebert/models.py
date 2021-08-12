@@ -1,5 +1,10 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
+# @File    : models.py
+# @Author  : Gaoli Chen
+# @Time    : 2021/07/09
+# @Desc    :
+
 import copy
 import json
 import os
@@ -8,11 +13,10 @@ import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 
-from simplebert.pretrained import CheckpointCache, checkpoint_manager
+from simplebert.pretrained import CheckpointCache, CheckpointManager
 
 def get_initializer(init_range):
     return keras.initializers.RandomNormal(mean = 0.0, stddev = init_range)
-
 
 def gelu(features, name = None):
     return tf.nn.gelu(features, approximate = False, name = name)
@@ -24,8 +28,9 @@ def lower_triangle_matrix(n):
 def shape_list(tensor):
     return tensor.shape
 
-class BertConfig(object):
-    
+class ModelConfig(object):
+    """The config class for model.
+    """
     def __init__(self, path, **kwargs):            
         with open(path) as f:
             self._config = json.load(f)
@@ -56,16 +61,17 @@ class SequenceEmbedding(keras.layers.Layer):
     """ Encode integer sequences into vectors of float type.
 
     """
-    def __init__(self, vocab_size, dim, name = None):
+    def __init__(self, vocab_size, dim, initializer_range = 0.02, name = None):
         super(SequenceEmbedding, self).__init__(name = name)
 
         self.dim = dim
         self.vocab_size = vocab_size
+        self.initializer_range = initializer_range
 
 
     def build(self, input_shape):
         self.weight = self.add_weight(shape = (self.vocab_size, self.dim), trainable = True,
-                                          initializer = get_initializer(0.02), name = 'weight')
+                                          initializer = get_initializer(self.initializer_range), name = 'weight')
     
         
     def call(self, x):
@@ -78,12 +84,11 @@ class PositionEmbedding(keras.layers.Layer):
     PE(pos, 2*i) = sin(pos/10000**(2*i/dim))
     PE(pos, 2*i+1) = cos(pos/10000**(2*i/dim))
     """
-    def __init__(self, dim, max_position_embeddings = 5000, pad_id = 0, name = None):
+    def __init__(self, dim, max_position_embeddings = 5000, name = None):
         super(PositionEmbedding, self).__init__(name = name)
 
         self.max_len = max_position_embeddings
         self.dim = dim
-        self.pad_id = pad_id
 
     def build(self, input_shape):
         # initialize positional encoding
@@ -102,8 +107,6 @@ class PositionEmbedding(keras.layers.Layer):
 
 
     def call(self, input_ids):
-        #has_id = tf.cast(tf.math.not_equal(input_ids, self.pad_id), dtype = input_ids.dtype)
-        #position_ids = tf.math.multiply(tf.cumsum(has_id, axis = 1), has_id) + self.pad_id
         input_shape = shape_list(input_ids)
         position_ids = tf.expand_dims(tf.range(start = 0, limit = input_shape[-1]), axis = 0)
         output = tf.gather(self.embeddings, indices = position_ids)
@@ -113,18 +116,26 @@ class PositionEmbedding(keras.layers.Layer):
             return output
 
 class TransformerEmbedding(keras.layers.Layer):
-    def __init__(self, vocab_size, dim, max_position_embeddings, name = None):
-        super(TransformerEmbedding, self).__init__(name = name)
+    def __init__(self, config, name = None, **kwargs):
+        super(TransformerEmbedding, self).__init__(name = name, **kwargs)
 
         with tf.name_scope('embeddings') as scope:
-            self.word_embeddings = SequenceEmbedding(vocab_size = vocab_size, dim = dim, name = 'word_embeddings')
-            self.position_embeddings = PositionEmbedding(dim = dim,
-                                                       max_position_embeddings = max_position_embeddings,
+            self.word_embeddings = SequenceEmbedding(vocab_size = config.vocab_size,
+                                                     dim = config.hidden_size,
+                                                     initializer_range = config.initializer_range,
+                                                     name = 'word_embeddings')
+            
+            self.position_embeddings = PositionEmbedding(dim = config.hidden_size,
+                                                       max_position_embeddings = config.max_position_embeddings,
                                                        name = "position_embeddings")
-            self.token_type_embeddings = keras.layers.Embedding(input_dim = 2, output_dim = dim, name = "token_type_embeddings")
+            
+            self.token_type_embeddings = keras.layers.Embedding(input_dim = 2,
+                                                                output_dim = config.hidden_size,
+                                                                name = "token_type_embeddings")
+
             self.sum_layer = keras.layers.Add(name = 'add')
-            self.norm = keras.layers.LayerNormalization(epsilon=1e-12, name="LayerNorm")
-            self.dropout = keras.layers.Dropout(rate=0.1)
+            self.norm = keras.layers.LayerNormalization(epsilon = 1e-12, name = "LayerNorm")
+            self.dropout = keras.layers.Dropout(rate = config.hidden_dropout_prob)
 
     def call(self, input_ids, token_type_ids = None, training = False):
         input_shape = shape_list(input_ids)
@@ -140,25 +151,19 @@ class TransformerEmbedding(keras.layers.Layer):
         output = self.norm(output, training = training)
         return self.dropout(output, training = training)
 
-    def save_weight(self, file_path):
-        symbolic_weights = self.trainable_weights + self.non_trainable_weights
-        with open(file_path, 'w') as f:
-            objs = []
-            for weight in symbolic_weights:
-                print(weight.name)
-                objs.append({"name": weight.name, "value":weight.numpy().tolist()[0]})
-            f.write(json.dumps(objs))
-
 
 class SublayerConnection(tf.keras.layers.Layer):
-    """    
+    """Performs add-and-norm operations on sublayers.
     """
-    def __init__(self, d_out, dropout_rate, **kwargs):
+    def __init__(self, config, **kwargs):
         super(SublayerConnection, self).__init__(**kwargs)
         
-        self.dense = keras.layers.Dense(units = d_out, kernel_initializer = get_initializer(0.02), name = 'dense')
+        self.dense = keras.layers.Dense(units = config.hidden_size,
+                                        kernel_initializer = get_initializer(config.initializer_range),
+                                        name = 'dense')
         self.norm = keras.layers.LayerNormalization(name = 'LayerNorm')
-        self.dropout = keras.layers.Dropout(rate = dropout_rate)
+        self.dropout = keras.layers.Dropout(rate = config.hidden_dropout_prob)
+        
 
     def call(self, x, output, **kwargs):
         output = self.dropout(self.dense(output))
@@ -167,7 +172,19 @@ class SublayerConnection(tf.keras.layers.Layer):
 
 
 def attention(querys, keys, values, mask = None, dropout = None, training = False):
-    """ Computes attention.
+    """ Computes attentions.
+
+        Args:
+            querys:
+                Querys of shape (batch_size, query_length, dim_k)
+            keys:
+                Keys of shape (batch_size, sequence_length, dim_k)
+            values:
+                Values of shape (batch_size, sequence_length, dim_v)
+            mask:
+                Attention mask.
+            dropout:
+                Dropout operator.
     """
     prod = tf.matmul(querys, keys, transpose_b = True)
     norm_factor = tf.math.sqrt(tf.cast(keys.shape[-1], 'float32'))
@@ -192,30 +209,30 @@ class MultiHeadedAttention(keras.layers.Layer):
         where head_i = Attention(Q[i], K[i], V[i]),
         Q[i] = matmul(Q, W_Q[i]), K[i] = matmul(K, W_K[i]), V[i] = matmul(V, W_V[i])
     """
-    def __init__(self, num_attention_heads, hidden_size, dropout = 0.1, name = None):
-        super(MultiHeadedAttention, self).__init__(name = name)
-        assert hidden_size % num_attention_heads == 0
+    def __init__(self, config, name = None, **kwargs):
+        super(MultiHeadedAttention, self).__init__(name = name, **kwargs)
+        assert config.hidden_size % config.num_attention_heads == 0
 
-        self.d_k = hidden_size // num_attention_heads
-        self.num_attention_heads = num_attention_heads
-        self.hidden_size = hidden_size
+        self.hidden_size = config.hidden_size
+        self.num_attention_heads = config.num_attention_heads
+        self.d_k = config.hidden_size // config.num_attention_heads
         
-        self.dropout = keras.layers.Dropout(rate = dropout)
+        self.dropout = keras.layers.Dropout(rate = config.attention_probs_dropout_prob)
         
         self.w_q = keras.layers.Dense(units = self.hidden_size,
-                                      kernel_initializer = get_initializer(0.02),
+                                      kernel_initializer = get_initializer(config.initializer_range),
                                       name='query')
         self.w_k = keras.layers.Dense(units = self.hidden_size,
-                                      kernel_initializer = get_initializer(0.02),
+                                      kernel_initializer = get_initializer(config.initializer_range),
                                       name='key')
         self.w_v = keras.layers.Dense(units = self.hidden_size,
-                                      kernel_initializer = get_initializer(0.02),
+                                      kernel_initializer = get_initializer(config.initializer_range),
                                       name='value')
-        #self.w_o = keras.layers.Dense(units = self.dim, kernel_initializer = get_initializer(0.02), name='output')
+        #self.w_o = keras.layers.Dense(units = self.dim, kernel_initializer = get_initializer(config.initializer_range), name='output')
 
         
     def call(self, querys, keys, values, mask = None, training = False):
-        """ Computes multiple attention scores.
+        """ Computes multi-head attention scores.
 
             querys.shape = (batches, sequence_len, d_model)
             keys.shape = (batches, sequence_len, d_model)
@@ -252,14 +269,13 @@ class MultiHeadedAttention(keras.layers.Layer):
 
 
 class AttentionLayer(keras.layers.Layer):
+    """Sublay for attention computation.
+    """
     def __init__(self, config, **kwargs):
         super(AttentionLayer, self).__init__(**kwargs)
 
-        self.self_attn = MultiHeadedAttention(num_attention_heads = config.num_attention_heads,
-                                              hidden_size = config.hidden_size,
-                                              dropout = config.attention_probs_dropout_prob,
-                                              name = 'self')
-        self.conn = SublayerConnection(d_out = config.hidden_size, dropout_rate = config.hidden_dropout_prob, name = 'output')
+        self.self_attn = MultiHeadedAttention(config, name = 'self')
+        self.conn = SublayerConnection(config, name = 'output')
 
     def call(self, x, attention_mask, training = False):
         output1 = self.self_attn(x, x, x, mask = attention_mask, training = training)
@@ -267,30 +283,32 @@ class AttentionLayer(keras.layers.Layer):
         
 
 class PositionwiseFeedForward(keras.layers.Layer):
+    """Positionwise FeedForward computation.
+    """
     def __init__(self, config, **kwargs):
         super(PositionwiseFeedForward, self).__init__(**kwargs)
-        
+
+        # gelu activation has approximation and exact versions.
+        # For simplicity, we always use exact version
         self.dense = keras.layers.Dense(units = config.intermediate_size,
                                         activation = config.hidden_act,
                                         kernel_initializer = get_initializer(config.initializer_range),
                                         name = 'dense')
-        #self.activation = config.hidden_act
         
         self.dropout = keras.layers.Dropout(config.hidden_dropout_prob)
 
     def call(self, x, training = False):
         output = self.dense(x)
-        #output = gelu(output, name = 'gelu')
         return self.dropout(output, training = training)
 
 class FeedForwardLayer(keras.layers.Layer):
+    """Sublayer for positionwise FeedForward computation.
+    """
     def __init__(self, config, **kwargs):
         super(FeedForwardLayer, self).__init__(**kwargs)
 
         self.feed_forward = PositionwiseFeedForward(config, name = 'intermediate')
-        self.conn = SublayerConnection(d_out = config.hidden_size,
-                                       dropout_rate = config.hidden_dropout_prob,
-                                       name = 'output')
+        self.conn = SublayerConnection(config, name = 'output')
 
     def call(self, x, training = False):
         output = self.feed_forward(x, training = training)
@@ -298,8 +316,7 @@ class FeedForwardLayer(keras.layers.Layer):
 
 
 class EncoderLayer(keras.layers.Layer):
-    """
-    Base class of transformer layers
+    """Base class of transformer layers
     """
     def __init__(self, config, name = None):
         super(EncoderLayer, self).__init__(name = name)
@@ -312,6 +329,8 @@ class EncoderLayer(keras.layers.Layer):
         return self.feed_forward(output, training = training)
 
 class Encoder(keras.layers.Layer):
+    """The encoder containing a list of main layers
+    """
     def __init__(self, config, name = None):
         super(Encoder, self).__init__(name = name)
 
@@ -332,6 +351,8 @@ class Encoder(keras.layers.Layer):
         return x, hidden_states
 
 class TransformerPooler(keras.layers.Layer):
+    """The pooler model head computing the pooler output of the model.
+    """
     def __init__(self, config, name = None):
         super(TransformerPooler, self).__init__(name = name)
         
@@ -343,6 +364,8 @@ class TransformerPooler(keras.layers.Layer):
         return self.dense(hidden_states)
 
 class LanguageModelHead(keras.layers.Layer):
+    """The model head compute final output of language model.
+    """
     def __init__(self, config, word_embedding, name = None):
         super(LanguageModelHead, self).__init__(name = name)
 
@@ -380,22 +403,18 @@ class LanguageModelHead(keras.layers.Layer):
         return hidden_states
 
 class Transformer(keras.models.Model):
-    """
-    base class of transformers
+    """Base class of transformers
     """
     def __init__(self, config,
                  model_head = None,
-                 causal_attention_mask = False,
+                 causal_attention = False,
                  **kwargs):
         super(Transformer, self).__init__(**kwargs)
 
         self.config = config
-        self.causal_attention_mask = causal_attention_mask
-        self.embeddings = TransformerEmbedding(vocab_size = config.vocab_size,
-                                               dim = config.hidden_size,
-                                               max_position_embeddings = config.max_position_embeddings,
-                                               name = 'embeddings')
-
+        self.causal_attention = causal_attention
+        
+        self.embeddings = TransformerEmbedding(config = config, name = 'embeddings')
         self.encoder = Encoder(config, name = 'encoder')
 
         if model_head is None:
@@ -412,6 +431,21 @@ class Transformer(keras.models.Model):
                                      name = 'predictions') if 'lml' in model_head else None
     
     def call(self, inputs, output_hidden_states = False, training = False):
+        """call method of the model.
+
+            Args:
+                inputs:
+                    Can be of list/tuple type as `[input_ids, token_type_ids, attention_mask]` or
+                    of dict type as `{"input_ids": input_ids, "token_type_ids": token_type_ids, "attention_mask": attention_mask}`
+                output_hidden_state:
+                    It it is set to True, output of all hidden layers will be returned.
+                training:
+                    True if in training mode, False otherwise.
+                    
+            Returns:
+                Dict type of the form `{"sequence_output": sequence_output, "pooler_output": pooler_output,
+                "logits": logits, "hidden_states": hidden_states}.`
+        """
         if isinstance(inputs, (list, tuple)):
             input_ids = inputs[0]
             token_type_ids = inputs[1] if len(inputs) > 1 else None
@@ -437,7 +471,7 @@ class Transformer(keras.models.Model):
         if output_hidden_states:
             hidden_states.append(output)
 
-        if self.causal_attention_mask:
+        if self.causal_attention:
             attention_mask = tf.constant(lower_triangle_matrix(input_shape[-1]))
             attention_mask = tf.reshape(attention_mask, shape = (1, 1, input_shape[-1], input_shape[-1]))
             
@@ -477,7 +511,16 @@ class Transformer(keras.models.Model):
         return self.name + '/' + weight_name
 
 
-    def load_checkpoint(self, checkpoint_path):
+    def load_checkpoint(self, checkpoint_path, silent = False):
+        """Loads weights from checkpoint.
+
+            Args:
+                checkpoint_path:
+                    Local path to the checkpoint. The checkpoint can be either .cpk or .h5 file type.
+
+            Returns:
+                List of unused weights of the checkpoint.
+        """
         ckc = CheckpointCache(checkpoint_path)
 
         dymmy_inputs = np.array([[0,1,2]])
@@ -486,12 +529,11 @@ class Transformer(keras.models.Model):
         symbolic_weights = self.trainable_weights + self.non_trainable_weights
         
         variable_keys = [self._clean_weight_name(symbolic_weight.name) for symbolic_weight in symbolic_weights]
-        #for key in variable_keys:
-        #    print(key)
         variable_keys = [self._convert_variable_name(key) for key in variable_keys]
 
         unloaded_keys = set(ckc.keys()) - set(variable_keys)
-        print('unused keys:', unloaded_keys)
+        if not silent:
+            print('unused keys:', unloaded_keys)
         
         values = [ckc.get_values(key) for key in variable_keys]
         
@@ -500,10 +542,14 @@ class Transformer(keras.models.Model):
         for weight, value in zip(symbolic_weights, values):
             if weight.shape != value.shape:
                 raise ValueError(f'The shape of {weight.name} is {weight.shape} but shape from checkpoint is {value.shape}.')
+            if weight.dtype != value.dtype:
+                raise ValueError(f'The type of {weight.name} is {weight.dtype} but type from checkpoint is {value.dtype}.')
             
             name_value_pair.append((weight, value))
         
         K.batch_set_value(name_value_pair)
+        
+        return unloaded_keys
         
 
     def _convert_variable_name(self, key):
@@ -511,6 +557,8 @@ class Transformer(keras.models.Model):
 
 
 class BertModel(Transformer):
+    """Model class for the original BERT implementation.
+    """
     def __init__(self, config, **kwargs):
         super(BertModel, self).__init__(config, **kwargs)
 
@@ -539,6 +587,8 @@ class BertModel(Transformer):
             raise ValueError(f'Invalid variable name {key}')
 
 class HuggingFaceBertModel(Transformer):
+    """Model class for the HuggingFace implementations of BERT
+    """
     def __init__(self, config, **kwargs):
         super(HuggingFaceBertModel, self).__init__(config, **kwargs)
 
@@ -575,16 +625,33 @@ register_class(HuggingFaceBertModel)
 
 def model_from_pretrained(model_name,
                           model_head = None,
-                          causal_attention_mask = False,
+                          causal_attention = False,
                           **kwargs):
-    
+    """
+    Creates a model and initializes its weights from a pretrained checkpoint.
+
+    Args:
+        model_name:
+            Name of the pretrained model.
+        model_head:
+            The name of head on top of the main layer. Its type can be either `str` or `list[str]` 
+        causal_attention:
+            Lower triangle attention mask is applied if it is True.
+        **kwargs:
+            Other
+
+    Returns:
+        The pretrained transformer model.
+
+    """
+    checkpoint_manager = CheckpointManager()
     class_name = checkpoint_manager.get_class(model_name)
     if not class_name in name_to_class:
         raise ValueError(f'{class_name} is not a valid Transformer class.')
     
     cls = name_to_class[class_name]
-    config = BertConfig(checkpoint_manager.get_config_path(model_name))
-    model = cls(config = config, model_head = model_head, causal_attention_mask = causal_attention_mask, **kwargs)
+    config = ModelConfig(checkpoint_manager.get_config_path(model_name))
+    model = cls(config = config, model_head = model_head, causal_attention = causal_attention, **kwargs)
 
     checkpoint_path = checkpoint_manager.get_checkpoint_path(model_name)
     model.load_checkpoint(checkpoint_path)

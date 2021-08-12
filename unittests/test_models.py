@@ -1,5 +1,10 @@
 #!/usr/bin/env python
-# -*- coding: utf-8 -*- 
+# -*- coding: utf-8 -*-
+# @File    : test_models.py
+# @Author  : Gaoli Chen
+# @Time    : 2021/07/09
+# @Desc    :
+
 import unittest
 import numpy as np
 import json
@@ -27,10 +32,11 @@ sys.path.append(simple_bert_dir)
 # now we can import the module in the parent
 # directory.
 from simplebert.tokenizers import Tokenizer
-from simplebert.models import BertConfig, Transformer, BertModel, HuggingFaceBertModel
+from simplebert.models import ModelConfig, BertModel, HuggingFaceBertModel, model_from_pretrained
+from simplebert.pretrained import CheckpointManager
 
 config_path = os.path.join(current, './testdata/bert_config.json')
-hf_config_path = os.path.join(current, './testdata/hf_bert_config.json')
+#hf_config_path = os.path.join(current, './testdata/hf_bert_config.json')
 
 en_cased_vocab_path = os.path.join(current, './testdata/bert-base-cased-vocab.txt')
 en_uncased_vocab_path = os.path.join(current, './testdata/bert-base-uncased-vocab.txt')
@@ -42,13 +48,13 @@ def average_norm(tensor, axis = -1):
     return tf.norm(tensor, axis = axis) / deno
 
 
-class BertConfigTestCase(unittest.TestCase):
+class ModelConfigTestCase(unittest.TestCase):
 
     def setUp(self):
         self.config_path = config_path
 
     def test_constructor(self):
-        config = BertConfig(path = self.config_path)
+        config = ModelConfig(path = self.config_path)
         self.assertEqual(config.attention_probs_dropout_prob, 0.1)
         self.assertEqual(config.hidden_act, 'gelu')
         self.assertEqual(config.hidden_dropout_prob, 0.1)
@@ -62,72 +68,71 @@ class BertConfigTestCase(unittest.TestCase):
         self.assertEqual(config.vocab_size, 28996)
 
     def test_constructor_with_extra_args(self):
-        config = BertConfig(path = self.config_path, hidden_act = 'relu', attention_probs_dropout_prob = 0.3)
+        config = ModelConfig(path = self.config_path, hidden_act = 'relu', attention_probs_dropout_prob = 0.3)
         self.assertEqual(config.attention_probs_dropout_prob, 0.3)
         self.assertEqual(config.hidden_act, 'relu')
 
 class TransformerTestCase(unittest.TestCase):
-
+    
     def setUp(self):
         self.eps = 1e-2
-        self.config_path = config_path
-        self.checkpoint_path = r'E:\deeplearning-data\cased_L-12_H-768_A-12\bert_model.ckpt'
-        self.h5file_path = r'E:\deeplearning-data\huggingface-bert-chinese\tf_bert_chinese.h5'
+
+        cm = CheckpointManager()
+        self.config_path = cm.get_config_path('bert-base-cased')
+        self.checkpoint_path = cm.get_checkpoint_path('bert-base-cased')
+
+        self.hf_config_path = cm.get_config_path('huggingface-bert-base-chinese')
+        self.h5file_path = cm.get_checkpoint_path('huggingface-bert-base-chinese')
 
 
     def test_constructor(self):
-        config = BertConfig(path = config_path)
+        config = ModelConfig(path = config_path)
         bert = BertModel(config = config, name = 'bert')
-        bert.load_checkpoint(self.checkpoint_path)
-        print(bert.summary())
+        bert.load_checkpoint(self.checkpoint_path, silent = True)
+        #summary = bert.summary()
 
     def test_call(self):
-        config = BertConfig(path = self.config_path)
+        config = ModelConfig(path = self.config_path)
         bert = BertModel(config = config, name = 'bert')
-        bert.load_checkpoint(self.checkpoint_path)
+        bert.load_checkpoint(self.checkpoint_path, silent = True)
 
         tokenizer = Tokenizer(en_cased_vocab_path)
         maxlen = 20
         text = "Train the model for three epochs."
-        print(tokenizer.tokenize(text))
         inputs = tokenizer([text], return_np = True, return_dict = True)
 
-        print(inputs['input_ids'].shape)
         output = bert(inputs, output_hidden_states = True)
-        print(output['sequence_output'], output['hidden_states'][0])
+        self.assertFalse(output['sequence_output'] is None)
+        self.assertFalse(output['hidden_states'][0] is None)
 
 
     def test_call_lml(self):
-        config = BertConfig(path = self.config_path)
+        config = ModelConfig(path = self.config_path)
         bert = BertModel(config = config, model_head = 'lml', name = 'bert')
-        bert.load_checkpoint(self.checkpoint_path)
+        bert.load_checkpoint(self.checkpoint_path, silent = True)
 
         tokenizer = Tokenizer(en_cased_vocab_path)
         maxlen = 20
         text = "Train the model for three epochs."
-        print(tokenizer.tokenize(text))
         inputs = tokenizer([text], return_np = True, return_dict = True)
 
-        print(inputs['input_ids'].shape)
-        output = bert(inputs, output_hidden_states = True)
-        print(output['sequence_output'], output['hidden_states'][0])
-
+        output = bert(inputs, output_hidden_states = False)
+        self.assertFalse(output['sequence_output'] is None)
+        self.assertFalse(output['logits'] is None)
+        
 
     def test_call_HuggingFace(self):
         text = u'原标题：打哭伊藤美诚！孙颖莎一个词形容：过瘾！……'
         
-        config = BertConfig(path = hf_config_path)
+        config = ModelConfig(path = self.hf_config_path)
         bert = HuggingFaceBertModel(config = config, name = 'bert')
-        bert.load_checkpoint(self.h5file_path)
+        bert.load_checkpoint(self.h5file_path, silent = True)
         tokenizer = Tokenizer(cn_vocab_path)
 
         inputs = tokenizer([text], return_np = True, return_dict = True)
         output = bert(inputs, output_hidden_states = True)
 
         hf_hidden_states = huggingface_model_output(text)
-
-        save_output(output['hidden_states'], num_layers = 2, file_name = './my_bert')
-        save_output(hf_hidden_states, num_layers = 2, file_name = './hf_bert')
 
         for i in range(len(hf_hidden_states)):
             diff = output['hidden_states'][i] - hf_hidden_states[i]
@@ -141,13 +146,12 @@ class TransformerTestCase(unittest.TestCase):
         text1 = u'磁铁会吸引某些金属，但也会排斥其他磁铁，那么为什么人们只能感觉到地心引力呢？'
         text2 = u'1915年，阿尔伯特·爱因斯坦发表了著名的广义相对论，找到了其中的答案。'
         
-        config = BertConfig(path = hf_config_path)
+        config = ModelConfig(path = self.hf_config_path)
         bert = HuggingFaceBertModel(config = config, name = 'bert')
-        bert.load_checkpoint(self.h5file_path)
+        bert.load_checkpoint(self.h5file_path, silent = True)
         tokenizer = Tokenizer(cn_vocab_path)
 
         inputs = tokenizer([text1], second_text = [text2], return_np = True, return_dict = True, maxlen = 80)
-        #print('my_model inputs:', inputs)
         output = bert(inputs, output_hidden_states = True)
 
         hf_hidden_states = huggingface_model_output(text1, text2, maxlen = 80)
@@ -161,9 +165,9 @@ class TransformerTestCase(unittest.TestCase):
 
 
     def test_LMHead(self):
-        config = BertConfig(path = hf_config_path)
+        config = ModelConfig(path = self.hf_config_path)
         bert = HuggingFaceBertModel(config = config, model_head = 'lml', name = 'bert')
-        bert.load_checkpoint(self.h5file_path)
+        bert.load_checkpoint(self.h5file_path, silent = True)
 
         text = u'我有一个[MASK]想。'
         tokenizer = Tokenizer(cn_vocab_path)
@@ -177,9 +181,9 @@ class TransformerTestCase(unittest.TestCase):
 
 
     def test_causal_lml(self):
-        config = BertConfig(path = hf_config_path)
-        bert = HuggingFaceBertModel(config = config, model_head = 'lml', causal_attention_mask = True, name = 'bert')
-        bert.load_checkpoint(self.h5file_path)
+        config = ModelConfig(path = self.hf_config_path)
+        bert = HuggingFaceBertModel(config = config, model_head = 'lml', causal_attention = True, name = 'bert')
+        bert.load_checkpoint(self.h5file_path, silent = True)
 
         text = u'我有一个梦想。'
         tokenizer = Tokenizer(cn_vocab_path)
@@ -188,12 +192,12 @@ class TransformerTestCase(unittest.TestCase):
         output = bert(inputs, output_hidden_states = False)
 
         tokens = logits_to_tokens(output['logits'], tokenizer, topk = 5)
-        print(tokens)
+        self.assertEqual(tokens.shape, (inputs['input_ids'].shape[1], 5))
 
     def test_causal_attention(self):
-        config = BertConfig(path = hf_config_path)
-        bert = HuggingFaceBertModel(config = config, model_head = 'lml', causal_attention_mask = True, name = 'bert')
-        bert.load_checkpoint(self.h5file_path)
+        config = ModelConfig(path = self.hf_config_path)
+        bert = HuggingFaceBertModel(config = config, model_head = 'lml', causal_attention = True, name = 'bert')
+        bert.load_checkpoint(self.h5file_path, silent = True)
 
         text = u'我有一个梦想。'
         tokenizer = Tokenizer(cn_vocab_path)
@@ -219,9 +223,9 @@ class TransformerTestCase(unittest.TestCase):
                 
 
     def test_call_batch(self):
-        config = BertConfig(path = hf_config_path)
+        config = ModelConfig(path = self.hf_config_path)
         bert = HuggingFaceBertModel(config = config, model_head = 'pooler', name = 'bert')
-        bert.load_checkpoint(self.h5file_path)
+        bert.load_checkpoint(self.h5file_path, silent = True)
 
         text1 = u'磁铁会吸引某些金属，但也会排斥其他磁铁，那么为什么人们只能感觉到地心引力呢？'
         text2 = u'1915年，阿尔伯特·爱因斯坦发表了著名的广义相对论，找到了其中的答案。'
@@ -239,9 +243,9 @@ class TransformerTestCase(unittest.TestCase):
 
     def test_build_model(self):
         input_dim = 64
-        config = BertConfig(path = self.config_path)
-        bert_model = BertModel(config, model_head = 'lml', causal_attention_mask = True, name = 'bert')
-        bert_model.load_checkpoint(self.checkpoint_path)
+        config = ModelConfig(path = self.config_path)
+        bert_model = BertModel(config, model_head = 'lml', causal_attention = True, name = 'bert')
+        bert_model.load_checkpoint(self.checkpoint_path, silent = True)
 
         inputs = dict(input_ids=keras.layers.Input(shape=(input_dim,), dtype=tf.int32),
                         attention_mask=keras.layers.Input(shape=(input_dim, ), dtype=tf.int32))
@@ -252,13 +256,13 @@ class TransformerTestCase(unittest.TestCase):
           
         model.compile(optimizer = keras.optimizers.Adam(learning_rate = 3e-5), loss = 'mse')
 
-        print(model.summary())
+        #print(model.summary())
 
         tokenizer = Tokenizer(en_cased_vocab_path)
         text = "Train the model for three epochs."
         model_inputs = tokenizer([text], return_np = True, return_dict = True, maxlen = input_dim)
         model_out = model(model_inputs)
-        print(model_out.shape)
+        self.assertEqual(model_out.shape, model_inputs['input_ids'].shape + (tokenizer.vocab_size,))
 
 
 def logits_to_tokens(logits, tokenizer, topk):
@@ -281,8 +285,6 @@ def huggingface_model_output(text1, text2 = None, maxlen = None):
     else:
         inputs = tokenizer([text1], [text2], padding = 'max_length', max_length = maxlen, return_tensors = 'np')
 
-    #print('hf_model inputs:', inputs)
-
     output = model(inputs, output_hidden_states = True)
     return output.hidden_states
 
@@ -293,6 +295,7 @@ def higgingface_lmlmodel_output(text):
     output = model(inputs, output_hidden_states = False)
     return output.logits
 
+
 def higgingface_pooler_output(texts):
     tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
     model = TFBertModel.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
@@ -300,16 +303,11 @@ def higgingface_pooler_output(texts):
     output = model(inputs, output_hidden_states = False)
     return output.pooler_output
 
-def save_output(hidden_states, num_layers, file_name):
-    for k in range(num_layers):
-        with open(file_name + f'_layer_{k}.txt', 'w') as f:
-            obj = {"value": hidden_states[k].numpy().tolist()[0]}
-            f.write(json.dumps(obj))
         
 def suite():
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(BertConfigTestCase)
-    suite.addTest(BertConfigTestCase('test_constructor'))
-    suite.addTest(BertConfigTestCase('test_constructor_with_extra_args'))
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ModelConfigTestCase)
+    suite.addTest(ModelConfigTestCase('test_constructor'))
+    suite.addTest(ModelConfigTestCase('test_constructor_with_extra_args'))
     
     suite.addTest(TransformerTestCase('test_constructor'))
     suite.addTest(TransformerTestCase('test_call'))
