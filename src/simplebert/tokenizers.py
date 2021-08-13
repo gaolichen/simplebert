@@ -7,6 +7,7 @@
 
 import os
 import numpy as np
+import tensorflow as tf
 from simplebert import utils
 from simplebert.pretrained import CheckpointManager
 
@@ -75,9 +76,9 @@ class Tokenizer(object):
                 add_word()
                 words.append(ch)
             elif ch == ']':
-                if len(words) >= 1 and words[-1] == '[' and '[' + word + ']' in self.special_tokens:
+                if len(words) >= 1 and words[-1] == '[' and '[' + word.upper() + ']' in self.special_tokens:
                     # this is a special token
-                    words[-1] = '[' + word + ']'
+                    words[-1] = '[' + word.upper() + ']'
                     word = ''
                 else:
                     add_word()
@@ -249,6 +250,23 @@ class Tokenizer(object):
 
     def ids_to_tokens(self, ids):
         return [self._id_token_dict[id] for id in ids]
+
+    def logits_to_ids(self, logits, topk = 5, flatten = False):
+        prob = tf.nn.softmax(logits, axis = -1)
+        indices = tf.argsort(prob, axis = -1, direction = 'DESCENDING')
+
+        indices = indices[:, :, :topk]
+        if flatten:
+            return np.ravel(indices.numpy())
+        else:
+            return indices
+
+    def logits_to_tokens(self, logits, topk = 5):
+        input_shape = logits.shape[:-1]
+        token_ids = self.logits_to_ids(logits, topk = topk, flatten = True)
+        tokens = self.ids_to_tokens(token_ids)
+        return np.reshape(np.array(tokens), input_shape + (topk,))
+        
 
     @staticmethod
     def _truncate(input_lists, maxlen, pad_id, keep_last = False):

@@ -626,6 +626,7 @@ register_class(HuggingFaceBertModel)
 def model_from_pretrained(model_name,
                           model_head = None,
                           causal_attention = False,
+                          silent = False,
                           **kwargs):
     """
     Creates a model and initializes its weights from a pretrained checkpoint.
@@ -654,7 +655,7 @@ def model_from_pretrained(model_name,
     model = cls(config = config, model_head = model_head, causal_attention = causal_attention, **kwargs)
 
     checkpoint_path = checkpoint_manager.get_checkpoint_path(model_name)
-    model.load_checkpoint(checkpoint_path)
+    model.load_checkpoint(checkpoint_path, silent = silent)
     
     return model
 
