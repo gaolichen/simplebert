@@ -638,6 +638,8 @@ def model_from_pretrained(model_name,
             The name of head on top of the main layer. Its type can be either `str` or `list[str]` 
         causal_attention:
             Lower triangle attention mask is applied if it is True.
+        silent:
+            If True, some warming messages are suppressed.
         **kwargs:
             Other
 
