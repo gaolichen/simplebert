@@ -426,9 +426,9 @@ class Transformer(keras.models.Model):
             raise ValueError('model_head should be of type str or list of str')
 
         self.pooler = TransformerPooler(config, name = 'pooler') if 'pooler' in model_head else None
-        self.lml = LanguageModelHead(config,
+        self.lm_head = LanguageModelHead(config,
                                      word_embedding = self.embeddings.word_embeddings,
-                                     name = 'predictions') if 'lml' in model_head else None
+                                     name = 'predictions') if 'lm' in model_head else None
     
     def call(self, inputs, output_hidden_states = False, training = False):
         """call method of the model.
@@ -490,7 +490,7 @@ class Transformer(keras.models.Model):
             hidden_states.extend(layer_outputs)
             
         pooler_output = self.pooler(tf.gather(last_hidden_state, indices = 0, axis = 1)) if self.pooler else None
-        logits = self.lml(last_hidden_state) if self.lml else None
+        logits = self.lm_head(last_hidden_state) if self.lm_head else None
 
         res = {'sequence_output': last_hidden_state,
                'pooler_output': pooler_output,

@@ -21,20 +21,17 @@ model_name = 'bert-base-chinese'
 # 创建并加载分词器
 tokenizer = tokenizer_from_pretrained(model_name)
 # 创建并加载模型
-# 选择lml(LanguageModelHead)和pooler两种model head
-# 输出所有层的结果
-model = model_from_pretrained(model_name,
-                              model_head = ['lml', 'pooler'],                            
-                              output_hidden_states = True)
+# 选择lm (LanguageModelHead)和pooler两种model head
+model = model_from_pretrained(model_name, model_head = ['lm', 'pooler'])
 
 # 调用分词器产生输入
 inputs = tokenizer([u'为啥科技公司都想养只机器狗？', u'一些公司已经将四足机器人应用在了业务中。'])
-# 调用模型产生输出
-output = model(inputs)
+# 调用模型产生输出，输出所有层的结果
+output = model(inputs, output_hidden_states = True)
 
 # 输出结果
 print(output['sequence_output'].shape)    # 最后一层的输出
-print(output['logits'].shape)             # 'lml'产生的输出
+print(output['logits'].shape)             # 'lm'产生的输出
 print(output['pooler_output'].shape)      # 'pooler'产生的输出
 print(output['hidden_states'][-2].shape)  # 倒数第二层产生的输出
 ```
@@ -52,7 +49,7 @@ checkpoint_file = '/path/to/checkpoint.ckp'
 
 tokenizer = Tokenizer(config_file, cased = True)
 config = ModelConfig(config_file)
-model = BertModel(config, model_head = 'lml')
+model = BertModel(config, model_head = 'lm')
 #...
 
 ```
