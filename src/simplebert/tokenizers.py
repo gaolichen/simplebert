@@ -8,6 +8,7 @@
 import os
 import numpy as np
 import tensorflow as tf
+from collections.abc import Iterable
 from simplebert import utils
 from simplebert.pretrained import CheckpointManager
 
@@ -131,6 +132,9 @@ class Tokenizer(object):
     def tokens_to_text(self, tokens):
         if not tokens:
             return ''
+
+        if isinstance(tokens, (list, tuple)) and isinstance(tokens[0], (list, tuple)):
+            return [self.tokens_to_text(tok_list) for tok_list in tokens]
         
         text = ''
         for tok in tokens:
@@ -154,13 +158,23 @@ class Tokenizer(object):
         return text.strip()
 
     def encode(self, first_text, second_text = None):
+        if second_text is not None:
+            len1 = 1 if isinstance(first_text, str) else len(first_text)
+            len2 = 1 if isinstance(second_text, str) else len(second_text)
+
+            if len1 != len2:
+                raise ValueError(f'The length of first_text = {len1} but the length of second_text is {len2}')
+        
         input_ids, _= self._to_input_ids(first_text)
 
         if second_text:
             input_ids2, _ = self._to_input_ids(second_text)
             input_ids[0] += input_ids2[0][1:]
 
-        return input_ids[0]
+        if isinstance(first_text, str):
+            return input_ids[0]
+        else:
+            return input_ids
             
 
     def __call__(self, first_text, second_text = None,
@@ -240,7 +254,7 @@ class Tokenizer(object):
 
 
     def decode(self, input_ids):
-        tokens = self.ids_to_tokens(id_list)
+        tokens = self.ids_to_tokens(input_ids)
         return self.tokens_to_text(tokens)
     
 
@@ -249,7 +263,7 @@ class Tokenizer(object):
 
 
     def ids_to_tokens(self, ids):
-        return [self._id_token_dict[id] for id in ids]
+        return [self.ids_to_tokens(id) if isinstance(id, Iterable) else self._id_token_dict[id] for id in ids]
 
     def logits_to_ids(self, logits, topk = 5, flatten = False):
         prob = tf.nn.softmax(logits, axis = -1)

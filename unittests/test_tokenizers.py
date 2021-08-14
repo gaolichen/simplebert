@@ -172,6 +172,14 @@ class TokenizerTestCase(unittest.TestCase):
         for testdata in testdatas:
             input_ids = tokenizer.encode(testdata['text'])
             self.assertEqual(input_ids, testdata['token_ids'])
+
+            input_ids = tokenizer.encode([testdata['text']])
+            self.assertEqual(input_ids, [testdata['token_ids']])
+
+            for second_data in testdatas:
+                input_ids = tokenizer.encode(testdata['text'], second_data['text'])
+                expected = testdata['token_ids'] + second_data['token_ids'][1:]
+                self.assertEqual(input_ids, expected)
             
     def test_encode_cn(self):
         tokenizer, testdata = load_testdata(cn_vocab_path, testdata_cn_path)
@@ -184,6 +192,33 @@ class TokenizerTestCase(unittest.TestCase):
     def test_encode_en_uncased(self):
         tokenizer, testdata = load_testdata(en_uncased_vocab_path, testdata_en_uncased_path, cased = False)
         self._test_encode(tokenizer, testdata)
+
+    def _test_decode(self, tokenizer, testdatas, cased = False):
+        for testdata in testdatas:
+            input_ids = testdata['token_ids']
+            text = tokenizer.decode(input_ids)
+            expected = testdata['text'] if cased else testdata['text'].lower()
+
+            # since the tokenizer cannot distinguish period from floating point,
+            # we need special handling to compare the results.
+            text2 = [t.strip() for t in text.split('.')]
+            expected2 = [t.strip() for t in expected.split('.')]
+            self.assertEqual(text2, expected2)
+
+            texts = tokenizer.decode([input_ids])
+            self.assertEqual(texts, [text])
+
+    def test_decode_cn(self):
+        tokenizer, testdata = load_testdata(cn_vocab_path, testdata_cn_path)
+        self._test_decode(tokenizer, testdata, cased = False)
+
+    def test_encode_en_cased(self):
+        tokenizer, testdata = load_testdata(en_cased_vocab_path, testdata_en_cased_path)
+        self._test_decode(tokenizer, testdata, cased = True)
+
+    def test_encode_en_uncased(self):
+        tokenizer, testdata = load_testdata(en_uncased_vocab_path, testdata_en_uncased_path, cased = False)
+        self._test_decode(tokenizer, testdata, cased = False)
 
     def _test_call(self, tokenizer, testdatas):
         for testdata in testdatas:

@@ -106,9 +106,9 @@ class TransformerTestCase(unittest.TestCase):
         self.assertFalse(output['hidden_states'][0] is None)
 
 
-    def test_call_lml(self):
+    def test_call_lm(self):
         config = ModelConfig(path = self.config_path)
-        bert = BertModel(config = config, model_head = 'lml', name = 'bert')
+        bert = BertModel(config = config, model_head = 'lm', name = 'bert')
         bert.load_checkpoint(self.checkpoint_path, silent = True)
 
         tokenizer = Tokenizer(en_cased_vocab_path)
@@ -166,7 +166,7 @@ class TransformerTestCase(unittest.TestCase):
 
     def test_LMHead(self):
         config = ModelConfig(path = self.hf_config_path)
-        bert = HuggingFaceBertModel(config = config, model_head = 'lml', name = 'bert')
+        bert = HuggingFaceBertModel(config = config, model_head = 'lm', name = 'bert')
         bert.load_checkpoint(self.h5file_path, silent = True)
 
         text = u'我有一个[MASK]想。'
@@ -174,15 +174,15 @@ class TransformerTestCase(unittest.TestCase):
 
         inputs = tokenizer([text], return_np = True, return_dict = True)
         output = bert(inputs, output_hidden_states = False)
-        hf_logits = higgingface_lmlmodel_output(text)
+        hf_logits = higgingface_lm_model_output(text)
 
         norm = average_norm(output['logits'] - hf_logits, axis = -1)
         self.assertTrue(tf.reduce_all(norm < 1e-2).numpy(), f'norm = {norm}')
 
 
-    def test_causal_lml(self):
+    def test_causal_lm(self):
         config = ModelConfig(path = self.hf_config_path)
-        bert = HuggingFaceBertModel(config = config, model_head = 'lml', causal_attention = True, name = 'bert')
+        bert = HuggingFaceBertModel(config = config, model_head = 'lm', causal_attention = True, name = 'bert')
         bert.load_checkpoint(self.h5file_path, silent = True)
 
         text = u'我有一个梦想。'
@@ -196,7 +196,7 @@ class TransformerTestCase(unittest.TestCase):
 
     def test_causal_attention(self):
         config = ModelConfig(path = self.hf_config_path)
-        bert = HuggingFaceBertModel(config = config, model_head = 'lml', causal_attention = True, name = 'bert')
+        bert = HuggingFaceBertModel(config = config, model_head = 'lm', causal_attention = True, name = 'bert')
         bert.load_checkpoint(self.h5file_path, silent = True)
 
         text = u'我有一个梦想。'
@@ -244,7 +244,7 @@ class TransformerTestCase(unittest.TestCase):
     def test_build_model(self):
         input_dim = 64
         config = ModelConfig(path = self.config_path)
-        bert_model = BertModel(config, model_head = 'lml', causal_attention = True, name = 'bert')
+        bert_model = BertModel(config, model_head = 'lm', causal_attention = True, name = 'bert')
         bert_model.load_checkpoint(self.checkpoint_path, silent = True)
 
         inputs = dict(input_ids=keras.layers.Input(shape=(input_dim,), dtype=tf.int32),
@@ -288,7 +288,7 @@ def huggingface_model_output(text1, text2 = None, maxlen = None):
     output = model(inputs, output_hidden_states = True)
     return output.hidden_states
 
-def higgingface_lmlmodel_output(text):
+def higgingface_lm_model_output(text):
     tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
     model = TFBertForMaskedLM.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
     inputs = tokenizer([text], return_tensors = 'np')
@@ -311,11 +311,11 @@ def suite():
     
     suite.addTest(TransformerTestCase('test_constructor'))
     suite.addTest(TransformerTestCase('test_call'))
-    suite.addTest(TransformerTestCase('test_call_lml'))
+    suite.addTest(TransformerTestCase('test_call_lm'))
     suite.addTest(TransformerTestCase('test_call_HuggingFace'))
     suite.addTest(TransformerTestCase('test_call_HuggingFace_textpair'))
     suite.addTest(TransformerTestCase('test_LMHead'))
-    suite.addTest(TransformerTestCase('test_causal_lml'))
+    suite.addTest(TransformerTestCase('test_causal_lm'))
     suite.addTest(TransformerTestCase('test_call_batch'))
     suite.addTest(TransformerTestCase('test_build_model'))
     suite.addTest(TransformerTestCase('test_causal_attention'))
