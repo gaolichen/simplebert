@@ -8,6 +8,7 @@
 import os
 import numpy as np
 import tensorflow as tf
+from tensorflow.keras.preprocessing.sequence import pad_sequences
 from collections.abc import Iterable
 from simplebert import utils
 from simplebert.pretrained import CheckpointManager
@@ -157,7 +158,7 @@ class Tokenizer(object):
 
         return text.strip()
 
-    def encode(self, first_text, second_text = None):
+    def encode(self, first_text, second_text = None, maxlen = None):
         if second_text is not None:
             len1 = 1 if isinstance(first_text, str) else len(first_text)
             len2 = 1 if isinstance(second_text, str) else len(second_text)
@@ -170,6 +171,10 @@ class Tokenizer(object):
         if second_text:
             input_ids2, _ = self._to_input_ids(second_text)
             input_ids[0] += input_ids2[0][1:]
+
+        if not maxlen is None:
+            input_ids = pad_sequences(input_ids, maxlen = maxlen, padding = 'post',
+                              truncating = 'post', value = self.pad_token_id)
 
         if isinstance(first_text, str):
             return input_ids[0]

@@ -480,8 +480,8 @@ class Transformer(keras.models.Model):
                 attention_mask = tf.constant(1.0, shape = input_shape, dtype = 'float32')
             # attention_mask now has shape (batches, sequence_len),
             # we need to covert it to (batches, 1, 1, sequence_len)
-            # so that later it will broadcast to (batches, num_attention_heads, sequence_len, sequence_len)
-            attention_mask = tf.reshape(attention_mask, shape = (input_shape[0], 1, 1, input_shape[-1]))
+            # so that it will broadcast to (batches, num_attention_heads, sequence_len, sequence_len)
+            attention_mask = tf.reshape(attention_mask, shape = (-1, 1, 1, input_shape[-1]))
 
             
         

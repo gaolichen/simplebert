@@ -176,6 +176,9 @@ class TokenizerTestCase(unittest.TestCase):
             input_ids = tokenizer.encode([testdata['text']])
             self.assertEqual(input_ids, [testdata['token_ids']])
 
+            input_ids = tokenizer.encode(testdata['text'], maxlen = 20).tolist()
+            self.assertEqual(input_ids, testdata['token_ids'][:20])
+
             for second_data in testdatas:
                 input_ids = tokenizer.encode(testdata['text'], second_data['text'])
                 expected = testdata['token_ids'] + second_data['token_ids'][1:]
