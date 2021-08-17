@@ -256,13 +256,42 @@ class TransformerTestCase(unittest.TestCase):
           
         model.compile(optimizer = keras.optimizers.Adam(learning_rate = 3e-5), loss = 'mse')
 
-        #print(model.summary())
-
         tokenizer = Tokenizer(en_cased_vocab_path)
         text = "Train the model for three epochs."
         model_inputs = tokenizer([text], return_np = True, return_dict = True, maxlen = input_dim)
         model_out = model(model_inputs)
         self.assertEqual(model_out.shape, model_inputs['input_ids'].shape + (tokenizer.vocab_size,))
+
+    def test_save_load_weights(self):
+        tokenizer = Tokenizer(en_cased_vocab_path, cased = True)
+        print(tokenizer.vocab_size)
+        config = ModelConfig(path = self.config_path)
+        bert_model = BertModel(config, model_head = 'lm', name = 'bert')
+        self.assertFalse(bert_model.built)
+        bert_model.load_checkpoint(self.checkpoint_path, silent = True)
+        self.assertTrue(bert_model.built)
+        text = 'The capital of France is [MASK].'
+        inputs = tokenizer(text)
+        logits = bert_model(inputs)['logits']
+        
+        save_path = r'.\tmp.ckpt'
+        print(f'saving weights to {save_path}')
+        bert_model.save_weights(save_path)
+        del bert_model
+        
+        bert_model = BertModel(config, model_head = 'lm', name = 'bert')
+        print(f'loading weights')
+        bert_model.load_weights(save_path)
+        print(f'removing weights')
+        os.remove(save_path + '.data-00000-of-00001')
+        os.remove(os.path.join(os.path.dirname(save_path), 'checkpoint'))
+        os.remove(save_path + '.index')
+
+        logits2 = bert_model(inputs)['logits']
+
+        diff_norm = average_norm(logits2 - logits)
+        bool_res = tf.less(diff_norm, 1e-6)
+        self.assertTrue(tf.reduce_all(bool_res).numpy(), f'diff_norm={diff_norm}')
 
 
 def logits_to_tokens(logits, tokenizer, topk):
@@ -278,8 +307,8 @@ def logits_to_tokens(logits, tokenizer, topk):
 
         
 def huggingface_model_output(text1, text2 = None, maxlen = None):
-    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
-    model = TFBertModel.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+    model = TFBertModel.from_pretrained('bert-base-chinese')
     if text2 is None:
         inputs = tokenizer([text1], return_tensors = 'np')
     else:
@@ -289,16 +318,16 @@ def huggingface_model_output(text1, text2 = None, maxlen = None):
     return output.hidden_states
 
 def higgingface_lm_model_output(text):
-    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
-    model = TFBertForMaskedLM.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+    model = TFBertForMaskedLM.from_pretrained('bert-base-chinese')
     inputs = tokenizer([text], return_tensors = 'np')
     output = model(inputs, output_hidden_states = False)
     return output.logits
 
 
 def higgingface_pooler_output(texts):
-    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
-    model = TFBertModel.from_pretrained('bert-base-chinese', cache_dir = r'C:\Users\Gaoli\.cache\huggingface\transformers')
+    tokenizer = BertTokenizer.from_pretrained('bert-base-chinese')
+    model = TFBertModel.from_pretrained('bert-base-chinese')
     inputs = tokenizer(texts, return_tensors = 'tf', max_length = 64, padding = 'max_length')
     output = model(inputs, output_hidden_states = False)
     return output.pooler_output
@@ -319,7 +348,8 @@ def suite():
     suite.addTest(TransformerTestCase('test_call_batch'))
     suite.addTest(TransformerTestCase('test_build_model'))
     suite.addTest(TransformerTestCase('test_causal_attention'))
-    
+
+    suite.addTest(TransformerTestCase('test_save_load_weights'))
     return suite
 
 if __name__ == '__main__':

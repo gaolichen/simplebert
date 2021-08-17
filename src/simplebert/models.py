@@ -429,6 +429,8 @@ class Transformer(keras.models.Model):
         self.lm_head = LanguageModelHead(config,
                                      word_embedding = self.embeddings.word_embeddings,
                                      name = 'predictions') if 'lm' in model_head else None
+        self.built = False
+
     
     def call(self, inputs, output_hidden_states = False, training = False):
         """call method of the model.
@@ -497,6 +499,8 @@ class Transformer(keras.models.Model):
                'logits': logits,
                'hidden_states': hidden_states}
 
+        self.built = True
+
         return {k : v for k, v in res.items() if v is not None}
 
 
@@ -511,6 +515,14 @@ class Transformer(keras.models.Model):
         return self.name + '/' + weight_name
 
 
+    def load_weights(self, checkpoint_path, **kwargs):
+        if not self.built:
+            dymmy_inputs = np.array([[0,1,2]])
+            self([dymmy_inputs])
+            
+        super().load_weights(checkpoint_path, **kwargs)
+
+
     def load_checkpoint(self, checkpoint_path, silent = False):
         """Loads weights from checkpoint.
 
@@ -523,8 +535,9 @@ class Transformer(keras.models.Model):
         """
         ckc = CheckpointCache(checkpoint_path)
 
-        dymmy_inputs = np.array([[0,1,2]])
-        self([dymmy_inputs])
+        if not self.built:
+            dymmy_inputs = np.array([[0,1,2]])
+            self([dymmy_inputs])
         
         symbolic_weights = self.trainable_weights + self.non_trainable_weights
         
@@ -656,10 +669,13 @@ def model_from_pretrained(model_name,
     config = ModelConfig(checkpoint_manager.get_config_path(model_name))
     model = cls(config = config, model_head = model_head, causal_attention = causal_attention, **kwargs)
 
-    checkpoint_path = checkpoint_manager.get_checkpoint_path(model_name)
     model.load_checkpoint(checkpoint_path, silent = silent)
     
     return model
+
+def config_from_pretrained(model_name):
+    checkpoint_manager = CheckpointManager()
+    return ModelConfig(checkpoint_manager.get_config_path(model_name))
 
 if __name__ == '__main__':
     print(name_to_class)
