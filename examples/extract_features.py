@@ -13,8 +13,7 @@ parent = os.path.dirname(current)
 simple_bert_dir=os.path.join(parent, 'src')
 sys.path.append(simple_bert_dir)
 
-from simplebert.tokenizers import tokenizer_from_pretrained
-from simplebert.models import model_from_pretrained
+from simplebert import tokenizer_from_pretrained, model_from_pretrained
 
 # 选择要加载的模型的名称
 model_name = 'bert-base-chinese'
@@ -24,7 +23,7 @@ tokenizer = tokenizer_from_pretrained(model_name)
 
 # 创建并加载模型
 # 选择lm (LanguageModelHead)和pooler两种model head
-model = model_from_pretrained(model_name, model_head = ['lm', 'pooler'])
+model = model_from_pretrained(model_name, model_head = ['lm', 'pooler'], silent = True)
 
 # 调用分词器产生输入
 inputs = tokenizer([u'为啥科技公司都想养只机器狗？', u'一些公司已经将四足机器人应用在了业务中。'])

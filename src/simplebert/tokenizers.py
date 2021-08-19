@@ -6,31 +6,48 @@
 # @Desc    :
 
 import os
+import json
 import numpy as np
+import regex as re
 import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 from collections.abc import Iterable
 from simplebert import utils
 from simplebert.pretrained import CheckpointManager
 
-class Tokenizer(object):
+class TokenizerBase(object):
     """Tokenizer
     """
-    def __init__(self, vocab_path, cased = True):
-        super(Tokenizer, self).__init__()
+    def __init__(self,
+                 vocab_path,
+                 cls_token,
+                 sep_token,
+                 pad_token,
+                 unk_token,
+                 mask_token,
+                 cased = True):
+        super(TokenizerBase, self).__init__()
             
         self.cased = cased
 
-        self.pad_token = '[PAD]'
-        self.unk_token = '[UNK]'
-        self.cls_token = '[CLS]'
-        self.sep_token = '[SEP]'
-        self.mask_token = '[MASK]'
+        self.pad_token =  pad_token
+        self.unk_token = unk_token
+        self.cls_token = cls_token
+        self.sep_token = sep_token
+        self.mask_token = mask_token
 
+        # for BERT the left and right brackets are [ and ]
+        # for RoBert and GPT2 they are < and >
+        self.left_bracket = pad_token[0]
+        self.right_bracket = pad_token[-1]
+        
         self._token_id_dict = {}
         with open(vocab_path, encoding='utf-8') as f:
-            for tok in f.readlines():
-                self._token_id_dict[tok.strip()] = len(self._token_id_dict)
+            if vocab_path.endswith('.json'):
+                self._token_id_dict = json.load(f)
+            else:
+                for tok in f.readlines():
+                    self._token_id_dict[tok.strip()] = len(self._token_id_dict)
 
         self._id_token_dict = {v : k for k, v in self._token_id_dict.items()}
         self.vocab_size = len(self._token_id_dict)
@@ -55,80 +72,21 @@ class Tokenizer(object):
         
 
     def tokenize(self, text, replace_unknown_token = False):
-        words = []
-        # first split text into words
-        word = ''
-
-        # add one whitespace in the end
-        text += ' '
-
-        if not self.cased:
-            text = text.lower()
-
-        def add_word():
-            nonlocal word
-            if len(word) > 0:
-                words.append(word)
-                word = ''
+        # split text into words
+        words = self._whitespace_tokenize(text)
         
-        for i, ch in enumerate(text):
-            if utils.is_whitespace(ch):
-                add_word()
-            elif utils.is_cjk_character(ch):
-                add_word()
-                words.append(ch)
-            elif ch == ']':
-                if len(words) >= 1 and words[-1] == '[' and '[' + word.upper() + ']' in self.special_tokens:
-                    # this is a special token
-                    words[-1] = '[' + word.upper() + ']'
-                    word = ''
-                else:
-                    add_word()
-                    words.append(ch)
-                
-#            elif utils.is_punctuation(ch) and (utils.is_whitespace(text[i+1]) or \
-#                                               ch in utils.cjk_punctuation()):
-            elif utils.is_punctuation(ch):
-                # true punctuation
-                add_word()
-                words.append(ch)
-            else:
-                word += ch
-
         # perform word piece tokenization
         tokens = []
         for word in words:
-            tokens.extend(self._tokenize(word, replace_unknown_token))
+            tokens.extend(self._wordpiece_tokenize(word, replace_unknown_token))
                 
         return tokens
 
-    def _tokenize(self, word, replace_unknown_token):
-        tokens = []
-        start = 0
-        while start < len(word):
-            end = len(word)
-            while start < end:
-                if start > 0:
-                    tok = '##' + word[start:end]
-                else:
-                    tok = word[start:end]
+    def _whitespace_tokenize(self, text):
+        raise NotImplementedError
 
-                if tok in self._token_id_dict:
-                    tokens.append(tok)
-                    break
-                else:
-                    end -= 1
-            if start < end:
-                # find a known token from dictionary
-                start = end
-            else:
-                # did not find a known token
-                if replace_unknown_token:
-                    return [self.unk_token]
-                else:
-                    return [word]
-
-        return tokens
+    def _wordpiece_tokenize(self, word, replace_unknown_token):
+        raise NotImplementedError
 
     def tokens_to_text(self, tokens):
         if not tokens:
@@ -136,27 +94,12 @@ class Tokenizer(object):
 
         if isinstance(tokens, (list, tuple)) and isinstance(tokens[0], (list, tuple)):
             return [self.tokens_to_text(tok_list) for tok_list in tokens]
-        
-        text = ''
-        for tok in tokens:
-            # skip two special tokens.
-            #if tok == self.cls_token or tok == self.sep_token or tok == self.pad_token:
-            if tok == self.cls_token or tok == self.sep_token or tok == self.pad_token:
-                continue
-            
-            if tok.startswith('##'):
-                text += tok[2:]
-            else:
-                if len(tok) == 1 and (utils.is_punctuation(tok) \
-                                       or utils.is_cjk_character(tok)):
-                    text += tok
-                else:
-                    if len(text) > 0 and (text[-1] != "'" and text[-1] != '-'):
-                        text += ' ' + tok
-                    else:
-                        text += tok
 
-        return text.strip()
+        return self._tokens_to_text(tokens)
+    
+
+    def _tokens_to_text(self, tokens):
+        raise NotImplementedError
 
     def encode(self, first_text, second_text = None, maxlen = None):
         if second_text is not None:
@@ -300,22 +243,233 @@ class Tokenizer(object):
                 ret.append(input + [pad_id] * (maxlen - len(input)))
         return ret
 
-def tokenizer_from_pretrained(model_name):
-    """Load tokenizer from pretrained models.
-
-        Args:
-            model_name:
-                The name of the pretrianed model configured in the pretrain_models.json
-
-        Returns:
-            A Tokenizer instance.
-    """
+class BertTokenizer(TokenizerBase):
     
-    checkpoint_manager = CheckpointManager()
-    vocab_path = checkpoint_manager.get_vocab_path(model_name)
-    return Tokenizer(vocab_path, cased = checkpoint_manager.get_cased(model_name))
+    def __init__(self, vocab_path, cased = True):
+        super(BertTokenizer, self).__init__(vocab_path,
+                                            pad_token = '[PAD]',
+                                            unk_token = '[UNK]',
+                                            cls_token = '[CLS]',
+                                            sep_token = '[SEP]',
+                                            mask_token = '[MASK]',
+                                            cased = cased)
+
+
+    def _whitespace_tokenize(self, text):
+        words = []
+        # first split text into words
+        word = ''
+
+        # add one whitespace in the end
+        text += ' '
+
+        def add_word():
+            nonlocal word
+            if len(word) > 0:
+                words.append(word)
+                word = ''
+        
+        for i, ch in enumerate(text):
+            if utils.is_whitespace(ch):
+                add_word()
+            elif utils.is_cjk_character(ch):
+                add_word()
+                words.append(ch)
+            elif ch == self.right_bracket:
+                if len(words) >= 1 and words[-1] == self.left_bracket and \
+                   self.left_bracket + word.upper() + self.right_bracket in self.special_tokens:
+                    # this is a special token
+                    words[-1] = self.left_bracket + word.upper() + self.right_bracket
+                    word = ''
+                else:
+                    add_word()
+                    words.append(ch)
+                
+            elif utils.is_punctuation(ch):
+                # true punctuation
+                add_word()
+                words.append(ch)
+            else:
+                word += ch if self.cased else ch.lower()
+
+        return words
+
+    def _wordpiece_tokenize(self, word, replace_unknown_token):
+        tokens = []
+        start = 0
+        while start < len(word):
+            end = len(word)
+            while start < end:
+                if start > 0:
+                    tok = '##' + word[start:end]
+                else:
+                    tok = word[start:end]
+
+                if tok in self._token_id_dict:
+                    tokens.append(tok)
+                    break
+                else:
+                    end -= 1
+            if start < end:
+                # find a known token from dictionary
+                start = end
+            else:
+                # did not find a known token
+                if replace_unknown_token:
+                    return [self.unk_token]
+                else:
+                    return [word]
+
+        return tokens
+
+    def _tokens_to_text(self, tokens):
+        text = ''
+        for tok in tokens:
+            # skip two special tokens.
+            #if tok == self.cls_token or tok == self.sep_token or tok == self.pad_token:
+            if tok == self.cls_token or tok == self.sep_token or tok == self.pad_token:
+                continue
+            
+            if tok.startswith('##'):
+                text += tok[2:]
+            else:
+                if len(tok) == 1 and (utils.is_punctuation(tok) \
+                                       or utils.is_cjk_character(tok)):
+                    text += tok
+                else:
+                    if len(text) > 0 and (text[-1] != "'" and text[-1] != '-'):
+                        text += ' ' + tok
+                    else:
+                        text += tok
+
+        return text.strip()
+
+
+
+class BpeTokenizer(TokenizerBase):
+    """
+    Tokenizer for RoBERT and GPT2 models.
+    The source code of the class is primary from open AI and huggingface transformers
+    """
+    def __init__(self, vocab_path, merge_path, cased = True):
+        super(BpeTokenizer, self).__init__(vocab_path,
+                                               pad_token = '<pad>',
+                                               unk_token = '<unk>',
+                                               cls_token = '<s>',
+                                               sep_token = '</s>',
+                                               mask_token = '<mask>',
+                                               cased = cased)
+
+        with open(merge_path, encoding = 'utf-8') as f:
+            bpe_pairs = [tuple(line.split()) for line in f.readlines()[1:-1]]
+
+        self.bpe_ranks = dict(zip(bpe_pairs, range(len(bpe_pairs))))
+
+        self.byte_encoder = self._bytes_to_unicode()
+        self.byte_decoder = {v: k for k, v in self.byte_encoder.items()}
+        
+        self.cache = {}
+        self.errors = "replace"
+        
+        self.pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
+
+    def _whitespace_tokenize(self, text):
+        return re.findall(self.pat, text)
+
+    def _wordpiece_tokenize(self, word, replace_unknown_token):
+        bpe_tokens = []
+        token = "".join(self.byte_encoder[b] for b in word.encode("utf-8"))
+        bpe_tokens.extend(bpe_token for bpe_token in self._byte_pair_encode(token).split(" "))
+
+        return bpe_tokens
+
+    def _tokens_to_text(self, tokens):
+        text = "".join(tokens)
+        text = bytearray([self.byte_decoder[c] for c in text]).decode("utf-8", errors = self.errors)
+        return text
+
+
+    def _byte_pair_encode(self, token):
+        if token in self.cache:
+            return self.cache[token]
+        word = tuple(token)
+        pairs = self._get_pairs(word)
+
+        if not pairs:
+            return token
+
+        while True:
+            bigram = min(pairs, key=lambda pair: self.bpe_ranks.get(pair, float("inf")))
+            if bigram not in self.bpe_ranks:
+                break
+            first, second = bigram
+            new_word = []
+            i = 0
+            while i < len(word):
+                try:
+                    j = word.index(first, i)
+                except ValueError:
+                    new_word.extend(word[i:])
+                    break
+                else:
+                    new_word.extend(word[i:j])
+                    i = j
+
+                if word[i] == first and i < len(word) - 1 and word[i + 1] == second:
+                    new_word.append(first + second)
+                    i += 2
+                else:
+                    new_word.append(word[i])
+                    i += 1
+            new_word = tuple(new_word)
+            word = new_word
+            if len(word) == 1:
+                break
+            else:
+                pairs = self._get_pairs(word)
+        word = " ".join(word)
+        self.cache[token] = word
+        return word
+
+    @staticmethod
+    def _get_pairs(word):
+        """
+        Return set of symbol pairs in a word.
+
+        Word is represented as tuple of symbols (symbols being variable-length strings).
+        """
+        pairs = set()
+        prev_char = word[0]
+        for char in word[1:]:
+            pairs.add((prev_char, char))
+            prev_char = char
+        return pairs
+
+
+    @staticmethod
+    def _bytes_to_unicode():
+        """
+        Returns list of utf-8 byte and a mapping to unicode strings. We specifically avoids mapping to whitespace/control
+        characters the bpe code barfs on.
+
+        The reversible bpe codes work on unicode strings. This means you need a large # of unicode characters in your vocab
+        if you want to avoid UNKs. When you're at something like a 10B token dataset you end up needing around 5K for
+        decent coverage. This is a signficant percentage of your normal, say, 32K bpe vocab. To avoid that, we want lookup
+        tables between utf-8 bytes and unicode strings.
+        """
+        bs = (
+            list(range(ord("!"), ord("~") + 1)) + list(range(ord("¡"), ord("¬") + 1)) + list(range(ord("®"), ord("ÿ") + 1))
+        )
+        cs = bs[:]
+        n = 0
+        for b in range(2 ** 8):
+            if b not in bs:
+                bs.append(b)
+                cs.append(2 ** 8 + n)
+                n += 1
+        cs = [chr(n) for n in cs]
+        return dict(zip(bs, cs))
 
 
 if __name__ == '__main__':
-    mytok = tokenizer_from_pretrained('huggingface-bert-base-cased')
-    print(mytok.cased)
+    pass

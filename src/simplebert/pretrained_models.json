@@ -124,6 +124,16 @@
       "config_file": "https://huggingface.co/bert-base-chinese/resolve/main/config.json",
       "checkpoint_file": "https://huggingface.co/bert-base-chinese/resolve/main/tf_model.h5",
       "cased": "0"
+    },
+    
+    {
+      "name": "huggingface-roberta-base",
+      "class": "HuggingFaceRobertaModel",
+      "vocab_file": "https://huggingface.co/roberta-base/resolve/main/vocab.json",
+      "merges_file": "https://huggingface.co/roberta-base/resolve/main/merges.txt",
+      "config_file": "https://huggingface.co/roberta-base/resolve/main/config.json",
+      "checkpoint_file": "https://huggingface.co/roberta-base/resolve/main/tf_model.h5",
+      "cased": "0"
     }
   ]
 }

@@ -13,8 +13,7 @@ pip install simplebert
 ## 使用范例
 最简单的调用如下。
 ```python
-from simplebert.tokenizers import tokenizer_from_pretrained
-from simplebert.models import model_from_pretrained
+from simplebert import tokenizer_from_pretrained, model_from_pretrained
 
 # 选择要加载的模型的名称
 model_name = 'bert-base-chinese'                 

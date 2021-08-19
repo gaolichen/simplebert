@@ -13,7 +13,7 @@ import tensorflow as tf
 import tensorflow.keras as keras
 import tensorflow.keras.backend as K
 
-from simplebert.pretrained import CheckpointCache, CheckpointManager
+from simplebert.pretrained import CheckpointCache
 
 def get_initializer(init_range):
     return keras.initializers.RandomNormal(mean = 0.0, stddev = init_range)
@@ -84,11 +84,12 @@ class PositionEmbedding(keras.layers.Layer):
     PE(pos, 2*i) = sin(pos/10000**(2*i/dim))
     PE(pos, 2*i+1) = cos(pos/10000**(2*i/dim))
     """
-    def __init__(self, dim, max_position_embeddings = 5000, name = None):
+    def __init__(self, dim, padding_idx = 0, max_position_embeddings = 5000, name = None):
         super(PositionEmbedding, self).__init__(name = name)
 
         self.max_len = max_position_embeddings
         self.dim = dim
+        self.padding_idx = padding_idx
 
     def build(self, input_shape):
         # initialize positional encoding
@@ -105,15 +106,25 @@ class PositionEmbedding(keras.layers.Layer):
         else:
             self.embeddings[:, 1::2].assign(tf.math.cos(args[:,:-1]))
 
+    def _create_position_ids_from_input_ids(self, input_ids):
+        # this is a work around to produce consistent results for both bert and roberta:
+        # for huggingface roberta, padding_idx = 1, position_id start with 2
+        # for bert, padding_idx = 0, position_id begin with 0
+        base = self.padding_idx if self.padding_idx > 0 else -1
+
+        mask = tf.cast(tf.math.not_equal(input_ids, self.padding_idx), dtype=input_ids.dtype)
+        incremental_indices = tf.math.cumsum(mask, axis=1) + base
+
+        incremental_indices = incremental_indices * mask
+        return incremental_indices
+        
+
 
     def call(self, input_ids):
         input_shape = shape_list(input_ids)
-        position_ids = tf.expand_dims(tf.range(start = 0, limit = input_shape[-1]), axis = 0)
+        position_ids = self._create_position_ids_from_input_ids(input_ids)
         output = tf.gather(self.embeddings, indices = position_ids)
-        if input_shape[0] is not None:
-            return tf.tile(input = output, multiples = (input_shape[0], 1, 1))
-        else:
-            return output
+        return output
 
 class TransformerEmbedding(keras.layers.Layer):
     def __init__(self, config, name = None, **kwargs):
@@ -126,10 +137,11 @@ class TransformerEmbedding(keras.layers.Layer):
                                                      name = 'word_embeddings')
             
             self.position_embeddings = PositionEmbedding(dim = config.hidden_size,
+                                                         padding_idx = config.get('pad_token_id', 0),
                                                        max_position_embeddings = config.max_position_embeddings,
                                                        name = "position_embeddings")
             
-            self.token_type_embeddings = keras.layers.Embedding(input_dim = 2,
+            self.token_type_embeddings = keras.layers.Embedding(input_dim = config.type_vocab_size,
                                                                 output_dim = config.hidden_size,
                                                                 name = "token_type_embeddings")
 
@@ -626,57 +638,32 @@ class HuggingFaceBertModel(Transformer):
         else:
             raise ValueError(f'Invalid variable name {key}')
 
+class HuggingFaceRobertaModel(Transformer):
+    def __init__(self, config, **kwargs):
+        super(HuggingFaceRobertaModel, self).__init__(config, **kwargs)
 
-name_to_class = {}
+        self.embedding_name_mapping = {
+            'embeddings/word_embeddings/embedding/embeddings:0': 'embeddings/word_embeddings/weight:0',
+            'embeddings/position_embeddings/embeddings:0': 'embeddings/position_embeddings/embeddings:0',
+            'embeddings/token_type_embeddings/embeddings:0': 'embeddings/token_type_embeddings/embeddings:0'}
+        
 
-def register_class(cls):
-    name_to_class[cls.__name__] = cls
-
-register_class(BertModel)
-register_class(HuggingFaceBertModel)
-
-
-def model_from_pretrained(model_name,
-                          model_head = None,
-                          causal_attention = False,
-                          silent = False,
-                          **kwargs):
-    """
-    Creates a model and initializes its weights from a pretrained checkpoint.
-
-    Args:
-        model_name:
-            Name of the pretrained model.
-        model_head:
-            The name of head on top of the main layer. Its type can be either `str` or `list[str]` 
-        causal_attention:
-            Lower triangle attention mask is applied if it is True.
-        silent:
-            If True, some warming messages are suppressed.
-        **kwargs:
-            Other
-
-    Returns:
-        The pretrained transformer model.
-
-    """
-    checkpoint_manager = CheckpointManager()
-    class_name = checkpoint_manager.get_class(model_name)
-    if not class_name in name_to_class:
-        raise ValueError(f'{class_name} is not a valid Transformer class.')
-    
-    cls = name_to_class[class_name]
-    config = ModelConfig(checkpoint_manager.get_config_path(model_name))
-    model = cls(config = config, model_head = model_head, causal_attention = causal_attention, **kwargs)
-
-    model.load_checkpoint(checkpoint_path, silent = silent)
-    
-    return model
-
-def config_from_pretrained(model_name):
-    checkpoint_manager = CheckpointManager()
-    return ModelConfig(checkpoint_manager.get_config_path(model_name))
+    def _convert_variable_name(self, key):
+        
+        prefix = 'roberta/'            
+        if key.startswith('encoder/layer_'):
+            key = key.replace('layer_', 'layer_._')
+            return prefix + key.replace('/feedforward', '')
+        
+        elif key.startswith('embeddings/'):
+            return prefix + self.embedding_name_mapping.get(key, key)
+        elif key.startswith('pooler/'):
+            return prefix + key
+        elif key.startswith('predictions/'):
+            return key.replace('transform/', '').replace('predictions/', 'lm_head/').replace('LayerNorm', 'layer_norm')
+        else:
+            raise ValueError(f'Invalid variable name {key}')
 
 if __name__ == '__main__':
-    print(name_to_class)
+    pass
     

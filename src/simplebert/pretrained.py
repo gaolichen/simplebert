@@ -18,6 +18,7 @@ class ModelInfo(object):
         self.name = config['name']
         self.download_url = config.get('download_url', '')
         self.vocab_file = config.get('vocab_file', 'vocab.txt')
+        self.merges_file = config.get('merges_file', '')
         self.config_file = config['config_file']
         self.checkpoint_file = config['checkpoint_file']
         self.cased = config.get('cased', '0') == '1'
@@ -101,6 +102,13 @@ class CheckpointManager(object):
 
     def get_vocab_path(self, model_name):
         return  self._retrieve_model(model_name, 'vocab_file')
+
+    def get_merges_path(self, model_name):
+        info = self.config.model_info(name = model_name)
+        if not info.merges_file:
+            return None
+        
+        return  self._retrieve_model(model_name, 'merges_file')
 
     def get_checkpoint_path(self, model_name):
         return  self._retrieve_model(model_name, 'checkpoint_file')

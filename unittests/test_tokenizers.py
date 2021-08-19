@@ -27,7 +27,8 @@ simple_bert_dir=os.path.join(parent, 'src')
 # the sys.path.
 sys.path.append(simple_bert_dir)
 
-from simplebert.tokenizers import Tokenizer, tokenizer_from_pretrained
+from simplebert import tokenizer_from_pretrained
+from simplebert.tokenizers import BertTokenizer, BpeTokenizer
 
 en_cased_vocab_path = os.path.join(current, './testdata/bert-base-cased-vocab.txt')
 testdata_en_cased_path = os.path.join(current, './testdata/testdata_tokenizer_en_cased.json')
@@ -40,7 +41,7 @@ testdata_cn_path = os.path.join(current, './testdata/testdata_tokenizer_cn.json'
 
 
 def load_testdata(vocab_path, testdata_path = None, cased = True):
-    tokenizer = Tokenizer(vocab_path, cased = cased)
+    tokenizer = BertTokenizer(vocab_path, cased = cased)
 
     if testdata_path is None:
         return tokenizer
@@ -51,7 +52,7 @@ def load_testdata(vocab_path, testdata_path = None, cased = True):
         return tokenizer, testdata
 
 
-class TokenizerTestCase(unittest.TestCase):
+class BertTokenizerTestCase(unittest.TestCase):
 
     def _test_constructor(self, tokenizer):
         # test special tokens
@@ -88,7 +89,7 @@ class TokenizerTestCase(unittest.TestCase):
         self._test_constructor(tokenizer)
 
     def _test_special_tokens(self, tokenizer):
-        tokenizer = Tokenizer(self.vocab_path)
+        tokenizer = BertTokenizer(self.vocab_path)
         special_tokens = [tokenizer.pad_token,
                           tokenizer.unk_token,
                           tokenizer.cls_token,
@@ -320,38 +321,102 @@ class TokenizerTestCase(unittest.TestCase):
         tokenizer = tokenizer_from_pretrained(model_name = 'bert-base-chinese')
         self.assertFalse(tokenizer.cased)
 
+roberta_vocab_path = os.path.join(current, './testdata/roberta-vocab.json')
+roberta_merges_path = os.path.join(current, './testdata/roberta-merges.txt')
+roberta_testdata_path = os.path.join(current, './testdata/testdata_bpe_tokenizer.json')
+
+
+def load_roberta_testdata(vocab_path, merges_path, testdata_path = None):
+    tokenizer = BpeTokenizer(vocab_path, merges_path)
+
+    if testdata_path is None:
+        return tokenizer
+    else:
+        with open(testdata_path, encoding = 'utf-8') as f:
+            testdata = json.load(f)
+
+        return tokenizer, testdata
+
+class BpeTokenizerTestCase(unittest.TestCase):
+    def test_constructor(self):
+        tokenizer = load_roberta_testdata(roberta_vocab_path, roberta_merges_path)
+
+        # test special tokens
+        self.assertEqual(tokenizer.pad_token, '<pad>')
+        self.assertEqual(tokenizer.unk_token, '<unk>')
+        self.assertEqual(tokenizer.cls_token, '<s>')
+        self.assertEqual(tokenizer.sep_token, '</s>')
+        self.assertEqual(tokenizer.mask_token, '<mask>')
+
+        # test special tokens
+        self.assertTrue(tokenizer.pad_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.unk_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.cls_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.sep_token in tokenizer.special_tokens)
+        self.assertTrue(tokenizer.mask_token in tokenizer.special_tokens)
+        
+    def test_tokenize(self):
+        tokenizer, testdatas = load_roberta_testdata(roberta_vocab_path, roberta_merges_path, roberta_testdata_path)
+        for testdata in testdatas:
+            tokens = tokenizer.tokenize(testdata['text'], replace_unknown_token = True)
+            self.assertEqual(tokens, testdata['tokens'])
+            self.assertEqual(tokenizer.tokens_to_text(tokens), testdata['text'])
+
+    def test_encode(self):
+        tokenizer, testdatas = load_roberta_testdata(roberta_vocab_path, roberta_merges_path, roberta_testdata_path)
+        
+        for testdata in testdatas:
+            input_ids = tokenizer.encode(testdata['text'])
+            self.assertEqual(input_ids, testdata['token_ids'])
+
+            input_ids = tokenizer.encode([testdata['text']])
+            self.assertEqual(input_ids, [testdata['token_ids']])
+
+            input_ids = tokenizer.encode(testdata['text'], maxlen = 19).tolist()
+            self.assertEqual(input_ids, testdata['token_ids'][:19])
+
+            for second_data in testdatas:
+                input_ids = tokenizer.encode(testdata['text'], second_data['text'])
+                expected = testdata['token_ids'] + second_data['token_ids'][1:]
+                self.assertEqual(input_ids, expected)
+
 
 def suite():
     suite = unittest.TestSuite()
     
-    suite.addTest(TokenizerTestCase('test_constructor_en_cased'))
-    suite.addTest(TokenizerTestCase('test_constructor_en_uncased'))
-    suite.addTest(TokenizerTestCase('test_constructor_cn'))
+    suite.addTest(BertTokenizerTestCase('test_constructor_en_cased'))
+    suite.addTest(BertTokenizerTestCase('test_constructor_en_uncased'))
+    suite.addTest(BertTokenizerTestCase('test_constructor_cn'))
 
-    suite.addTest(TokenizerTestCase('test_special_tokens_en_uncased'))
-    suite.addTest(TokenizerTestCase('test_special_tokens_en_cased'))
-    suite.addTest(TokenizerTestCase('test_special_tokens_cn'))
+    suite.addTest(BertTokenizerTestCase('test_special_tokens_en_uncased'))
+    suite.addTest(BertTokenizerTestCase('test_special_tokens_en_cased'))
+    suite.addTest(BertTokenizerTestCase('test_special_tokens_cn'))
     
-    suite.addTest(TokenizerTestCase('test_tokenize_en_uncased'))
-    suite.addTest(TokenizerTestCase('test_tokenize_en_cased'))
-    suite.addTest(TokenizerTestCase('test_tokenize_cn'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_en_uncased'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_en_cased'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_cn'))
     
 
-    suite.addTest(TokenizerTestCase('test_tokenize_cjk'))
-    suite.addTest(TokenizerTestCase('test_tokenize_cjk_en_mix'))
-    suite.addTest(TokenizerTestCase('test_tokenize_special_tokens_cn'))
-    suite.addTest(TokenizerTestCase('test_tokenize_special_tokens_en'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_cjk'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_cjk_en_mix'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_special_tokens_cn'))
+    suite.addTest(BertTokenizerTestCase('test_tokenize_special_tokens_en'))
 
-    suite.addTest(TokenizerTestCase('test_encode_cn'))
-    suite.addTest(TokenizerTestCase('test_encode_en_cased'))
-    suite.addTest(TokenizerTestCase('test_encode_en_uncased'))
+    suite.addTest(BertTokenizerTestCase('test_encode_cn'))
+    suite.addTest(BertTokenizerTestCase('test_encode_en_cased'))
+    suite.addTest(BertTokenizerTestCase('test_encode_en_uncased'))
 
-    suite.addTest(TokenizerTestCase('test_call_en_cased'))
-    suite.addTest(TokenizerTestCase('test_call_en_uncased'))
-    suite.addTest(TokenizerTestCase('test_call_cn'))
+    suite.addTest(BertTokenizerTestCase('test_call_en_cased'))
+    suite.addTest(BertTokenizerTestCase('test_call_en_uncased'))
+    suite.addTest(BertTokenizerTestCase('test_call_cn'))
     
-    suite.addTest(TokenizerTestCase('test_call_return_np'))
-    suite.addTest(TokenizerTestCase('test_from_pretrained'))
+    suite.addTest(BertTokenizerTestCase('test_call_return_np'))
+    suite.addTest(BertTokenizerTestCase('test_from_pretrained'))
+
+    suite.addTest(BpeTokenizerTestCase('test_constructor'))
+    suite.addTest(BpeTokenizerTestCase('test_tokenize'))
+    suite.addTest(BpeTokenizerTestCase('test_encode'))
+    
     
     #suite = unittest.defaultTestLoader.loadTestsFromTestCase(TokenizerTestCase)
     

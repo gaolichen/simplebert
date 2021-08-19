@@ -14,8 +14,7 @@ parent = os.path.dirname(current)
 simple_bert_dir=os.path.join(parent, 'src')
 sys.path.append(simple_bert_dir)
 
-from simplebert.tokenizers import tokenizer_from_pretrained
-from simplebert.models import model_from_pretrained
+from simplebert import tokenizer_from_pretrained, model_from_pretrained
 
 def language_model_predict(model_name, text):
     
