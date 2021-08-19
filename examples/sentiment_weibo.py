@@ -27,7 +27,6 @@ from simplebert import tokenizer_from_pretrained, model_from_pretrained
 # download data from https://github.com/ymcui/Chinese-BERT-wwm/blob/master/data/weibo/weibo.zip
 # and unzip the file to directory {data_root}.
 data_root = r'/path/to/data/directory'
-data_root = r'E:\deeplearning-data\weibo'
 
 @dataclass
 class Settings(object):
@@ -156,5 +155,5 @@ def train(settings):
                                   
 if __name__ == '__main__':
     settings = Settings()
-    model = train(settings)
+    train(settings)
     
