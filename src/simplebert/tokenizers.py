@@ -25,10 +25,12 @@ class TokenizerBase(object):
                  pad_token,
                  unk_token,
                  mask_token,
-                 cased = True):
+                 cased = True,
+                 paired_tag = False):
         super(TokenizerBase, self).__init__()
             
         self.cased = cased
+        self.paired_tag = paired_tag
 
         self.pad_token =  pad_token
         self.unk_token = unk_token
@@ -113,7 +115,10 @@ class TokenizerBase(object):
 
         if second_text:
             input_ids2, _ = self._to_input_ids(second_text)
-            input_ids[0] += input_ids2[0][1:]
+            if not self.paired_tag:
+                input_ids[0] += input_ids2[0][1:]
+            else:
+                input_ids[0] += input_ids2[0]
 
         if not maxlen is None:
             input_ids = pad_sequences(input_ids, maxlen = maxlen, padding = 'post',
@@ -158,8 +163,12 @@ class TokenizerBase(object):
                 raise ValueError(f'the number of texts in the two arguments should be the same.')
             
             for i in range(len(input_ids2)):
-                input_ids[i] += input_ids2[i][1:]
-                segment_ids[i] += segment_ids2[i][1:]
+                if not self.paired_tag:
+                    input_ids[i] += input_ids2[i][1:]
+                    segment_ids[i] += segment_ids2[i][1:]
+                else:
+                    input_ids[i] += input_ids2[i]
+                    segment_ids[i] += segment_ids2[i]
 
         # build attention mask
         attention_mask = []
@@ -358,7 +367,8 @@ class BpeTokenizer(TokenizerBase):
                                                cls_token = '<s>',
                                                sep_token = '</s>',
                                                mask_token = '<mask>',
-                                               cased = cased)
+                                               cased = cased,
+                                               paired_tag = True)
 
         with open(merge_path, encoding = 'utf-8') as f:
             bpe_pairs = [tuple(line.split()) for line in f.readlines()[1:-1]]
@@ -374,9 +384,39 @@ class BpeTokenizer(TokenizerBase):
         self.pat = re.compile(r"""'s|'t|'re|'ve|'m|'ll|'d| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+""")
 
     def _whitespace_tokenize(self, text):
-        return re.findall(self.pat, text)
+        bra, start = 0, 0
+        positions = []
+        
+        for i, ch in enumerate(text):
+            if ch == self.left_bracket:
+                bra = 1
+                start = i
+            elif ch == self.right_bracket and bra == 1:
+                if text[start:i + 1] in self.special_tokens:
+                    positions.append((start, i + 1))
+                bra = 0
+
+        if not positions:
+            return re.findall(self.pat, text)
+        else:
+            last_pos = 0
+            tokens = []
+            for pos in positions:
+                pre_text = text[last_pos:pos[0]].rstrip()
+                if len(pre_text):
+                    tokens.extend(re.findall(self.pat, pre_text))
+                tokens.append(text[pos[0]:pos[1]])
+                last_pos = pos[1]
+
+            if last_pos < len(text):
+                tokens.extend(re.findall(self.pat, text[last_pos:].rstrip()))
+            return tokens
+            
 
     def _wordpiece_tokenize(self, word, replace_unknown_token):
+        if word in self.special_tokens:
+            return [word]
+        
         bpe_tokens = []
         token = "".join(self.byte_encoder[b] for b in word.encode("utf-8"))
         bpe_tokens.extend(bpe_token for bpe_token in self._byte_pair_encode(token).split(" "))

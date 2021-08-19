@@ -381,9 +381,6 @@ class RobertaModelTestCase(unittest.TestCase):
             output = roberta(inputs)
             expected = np.array(testdata['last_hidden_state'], dtype = 'float32')
             actual = output['sequence_output'].numpy()
-
-            print(actual.shape, expected.shape)
-            print(actual.dtype, expected.dtype)
             
             diff_norm = average_norm(actual - expected, axis = -1)[0]
             expected_norm = average_norm(expected, axis = -1)[0]
