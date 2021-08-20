@@ -139,8 +139,7 @@ def train(settings):
     print(model.summary())
     model.compile(optimizer = keras.optimizers.Adam(learning_rate = settings.learning_rate),
                   loss = 'binary_crossentropy',
-                  metrics = ['accuracy']
-                  )
+                  metrics = ['accuracy'])
     
     callback = ValidCallback(dev_ds, valid_step = 100)
 
@@ -157,3 +156,8 @@ if __name__ == '__main__':
     settings = Settings()
     train(settings)
     
+
+"""输出结果：
+test_loss=0.07993953675031662, test_accuracy=0.9769999980926514
+
+"""
